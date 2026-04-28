@@ -27,8 +27,8 @@ use soroban_sdk::{contract, contractevent, contractimpl, panic_with_error, Addre
 #[contract]
 pub struct NiffyInsure;
 pub use admin::{AdminAction, AdminError, PendingAdminAction};
-pub use policy::RenewalError;
-pub use policy_lifecycle::PolicyError;
+pub use policy::{PolicyError, RenewalError};
+pub use policy_lifecycle::PolicyError as LifecyclePolicyError;
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
 #[soroban_sdk::contracterror]
@@ -266,16 +266,6 @@ impl NiffyInsure {
         claim::finalize_claim(&env, claim_id)
     }
 
-    /// Permissionless keeper: deactivate policy after `end_ledger + grace_period_ledgers`.
-    /// `holder` identifies the policy record (no authentication).
-    pub fn process_expired(
-        env: Env,
-        holder: Address,
-        policy_id: u32,
-    ) -> Result<(), policy_lifecycle::PolicyError> {
-        policy_lifecycle::process_expired(&env, holder, policy_id)
-    }
-
     /// Permissionless keeper: finalize claim when past `voting_deadline_ledger` (same rules as `finalize_claim`).
     pub fn process_deadline(
         env: Env,
@@ -342,30 +332,6 @@ impl NiffyInsure {
 
     pub fn get_grace_period_ledgers(env: Env) -> u32 {
         policy::get_grace_period_ledgers(&env)
-    }
-
-    // ── Renewal ───────────────────────────────────────────────────────────────
-
-    /// Renew an existing active policy within the standard or grace window.
-    pub fn renew_policy(
-        env: Env,
-        holder: Address,
-        policy_id: u32,
-        age_band: types::AgeBand,
-        coverage_type: types::CoverageTier,
-        safety_score: u32,
-        base_amount: i128,
-    ) -> Result<types::Policy, policy::RenewalError> {
-        storage::bump_instance(&env);
-        policy::renew_policy(
-            &env,
-            holder,
-            policy_id,
-            age_band,
-            coverage_type,
-            safety_score,
-            base_amount,
-        )
     }
 
     pub fn process_claim(env: Env, claim_id: u64) -> Result<(), validate::Error> {
@@ -685,13 +651,8 @@ impl NiffyInsure {
         admin::cancel_admin_action(&env);
     }
 
-pub fn set_token(env: Env, new_token: Address) {
+    pub fn set_token(env: Env, new_token: Address) {
         admin::set_token(&env, new_token);
-    }
-
-    /// *** DEPRECATED single-step *** Use propose_admin_action(TreasuryRotation) for protected rotation.
-    pub fn set_treasury(env: Env, new_treasury: Address) {
-        admin::set_treasury(&env, new_treasury);
     }
 
     pub fn set_treasury(env: Env, new_treasury: Address) {
