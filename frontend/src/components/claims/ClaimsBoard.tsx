@@ -7,13 +7,24 @@ import React, { useState, useCallback, useRef, useEffect } from "react";
 
 import { useAuth } from "@/lib/hooks/useAuth";
 import { useClaimsData } from "@/lib/hooks/useClaimsData";
-import { useNotifications } from "@/lib/hooks/useNotifications";
+import {
+  useClaimStatusNotifications,
+  useNotifications,
+} from "@/lib/hooks/useNotifications";
+import { useClaimWatcher } from "@/lib/hooks/useClaimWatcher";
 import { useQueryParamFilters } from "@/lib/hooks/useQueryParamFilters";
 import { useRealtimeTallies } from "@/lib/hooks/useRealtimeTallies";
+import { useLatestLedger } from "@/hooks/use-latest-ledger";
 import type { ClaimBoard } from "@/lib/schemas/claims-board";
 
 import { ClaimList } from "./ClaimList";
 import { FilterBar } from "./FilterBar";
+import {
+  ClaimNotificationsToggle,
+  getClaimNotificationsEnabled,
+  NotificationPermissionBanner,
+  setClaimNotificationsEnabled,
+} from "./NotificationPermissionBanner";
 import { PaginationControls } from "./PaginationControls";
 import { SkeletonRow } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -96,6 +107,7 @@ export function ClaimsBoard() {
   }, []);
 
   const { notify } = useClaimStatusNotifications(notifEnabled);
+  const claimIds = localClaims.map((c) => c.claim_id);
 
   // Watch all currently visible claim IDs for status changes.
   useClaimWatcher({
@@ -105,8 +117,6 @@ export function ClaimsBoard() {
   });
 
   // ── Real-time tally updates (Req 6.1, 6.5) ────────────────────────────────
-  const claimIds = localClaims.map((c) => c.claim_id);
-
   const handleTallyUpdate = useCallback((update: TallyUpdate) => {
     // Apply update ONLY to the claim with the matching claimId (Req 6.5).
     setTallyPatches((prev) => {

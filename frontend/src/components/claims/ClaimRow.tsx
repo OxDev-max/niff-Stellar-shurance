@@ -2,6 +2,8 @@
 
 // Feature: claims-board
 
+import Link from "next/link";
+
 import type { ClaimBoard } from "@/lib/schemas/claims-board";
 
 import { DeadlineDisplay } from "./DeadlineDisplay";
@@ -108,9 +110,12 @@ export function ClaimRow({
       <div className="min-w-0 flex-1 space-y-0.5">
         <div className="flex flex-wrap items-center gap-2">
           {/* Claim ID */}
-          <span className="font-mono text-sm font-semibold text-gray-900 truncate">
+          <Link
+            href={`/claims/${claim.claim_id}`}
+            className="font-mono text-sm font-semibold text-gray-900 underline-offset-2 hover:underline focus:outline-none focus:ring-2 focus:ring-blue-500"
+          >
             {claim.claim_id}
-          </span>
+          </Link>
 
           {/* Status badge — shape + text label (non-color-only, Req 9.3) */}
           <span

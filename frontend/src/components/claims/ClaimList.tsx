@@ -58,6 +58,7 @@ export function ClaimList({
             claim={claim}
             isAuthenticated={isAuthenticated}
             onVote={onVote}
+            currentLedger={currentLedger}
           />
         ))}
       </div>
