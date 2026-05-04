@@ -110,12 +110,7 @@ impl AdminAction {
         }
     }
 
-    pub fn token_sweep(
-        asset: Address,
-        recipient: Address,
-        amount: i128,
-        reason_code: u32,
-    ) -> Self {
+    pub fn token_sweep(asset: Address, recipient: Address, amount: i128, reason_code: u32) -> Self {
         Self {
             tag: AdminActionTag::TokenSweep,
             new_treasury: asset.clone(),
@@ -138,7 +133,7 @@ pub struct PendingAdminAction {
 #[contractevent(topics = ["niffyinsure", "admin_action_proposed"])]
 pub struct AdminActionProposed {
     pub proposer: Address,
-    pub action_id: u32,  // env.ledger().sequence()
+    pub action_id: u32, // env.ledger().sequence()
     pub expiry_ledger: u32,
     pub action: AdminAction,
 }
@@ -239,7 +234,7 @@ pub fn require_admin(env: &Env) -> Address {
 /// Propose a high-risk admin action (treasury rotation or sweep). Current admin authorizes.
 pub fn propose_admin_action(env: &Env, action: AdminAction) {
     let proposer = require_admin(env);
-    storage::check_and_clear_expired_admin_action(env);  // Clear stale first
+    storage::check_and_clear_expired_admin_action(env); // Clear stale first
 
     if storage::has_pending_admin_action(env) {
         panic_with_error!(env, AdminError::NoPendingAdminAction);
@@ -285,7 +280,8 @@ pub fn confirm_admin_action(env: &Env, confirmer: Address) {
         storage::clear_pending_admin_action(env);
         AdminActionExpired {
             proposer: pending.proposer.clone(),
-            action_id: pending.expiry_ledger
+            action_id: pending
+                .expiry_ledger
                 .saturating_sub(storage::get_admin_action_window_ledgers(env)),
             expiry_ledger: pending.expiry_ledger,
             action: pending.action.clone(),
@@ -305,7 +301,11 @@ pub fn confirm_admin_action(env: &Env, confirmer: Address) {
         AdminActionTag::TreasuryRotation => {
             let old_treasury = storage::get_treasury(env);
             storage::set_treasury(env, &action.new_treasury);
-            TreasuryUpdated { old_treasury, new_treasury: action.new_treasury.clone() }.publish(env);
+            TreasuryUpdated {
+                old_treasury,
+                new_treasury: action.new_treasury.clone(),
+            }
+            .publish(env);
         }
         AdminActionTag::TokenSweep => {
             sweep_token_inner(
@@ -451,7 +451,13 @@ pub fn sweep_token(env: &Env, asset: Address, recipient: Address, amount: i128, 
     sweep_token_inner(env, asset, recipient, amount, reason_code);
 }
 
-fn sweep_token_inner(env: &Env, asset: Address, recipient: Address, amount: i128, reason_code: u32) {
+fn sweep_token_inner(
+    env: &Env,
+    asset: Address,
+    recipient: Address,
+    amount: i128,
+    reason_code: u32,
+) {
     // Validation: amount must be > 0
     if amount <= 0 {
         panic_with_error!(env, AdminError::InvalidSweepAmount);
@@ -472,7 +478,8 @@ fn sweep_token_inner(env: &Env, asset: Address, recipient: Address, amount: i128
     if notice_period > 0 {
         let pending = storage::get_pending_admin_action(env)
             .unwrap_or_else(|| panic_with_error!(env, AdminError::NoPendingAdminAction));
-        let proposed_at = pending.expiry_ledger
+        let proposed_at = pending
+            .expiry_ledger
             .saturating_sub(storage::get_admin_action_window_ledgers(env));
         let earliest_execution = proposed_at.saturating_add(notice_period);
         if env.ledger().sequence() < earliest_execution {
@@ -493,7 +500,7 @@ fn sweep_token_inner(env: &Env, asset: Address, recipient: Address, amount: i128
     crate::token::sweep_asset(env, &asset, &recipient, amount);
 
     // Emit comprehensive audit event
-    let admin = require_admin(env);  // Re-require for event
+    let admin = require_admin(env); // Re-require for event
     EmergencySweepExecuted {
         admin,
         asset,
@@ -576,6 +583,10 @@ pub fn set_max_evidence_count(env: &Env, new_count: u32) -> Result<(), AdminErro
     }
     let old_count = storage::get_max_evidence_count(env);
     storage::set_max_evidence_count(env, new_count);
-    MaxEvidenceCountUpdated { old_count, new_count }.publish(env);
+    MaxEvidenceCountUpdated {
+        old_count,
+        new_count,
+    }
+    .publish(env);
     Ok(())
 }

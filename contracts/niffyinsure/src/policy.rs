@@ -6,8 +6,8 @@ use crate::{
     },
     validate::{self, Error},
 };
+pub use ledger::QUOTE_TTL_LEDGERS;
 use soroban_sdk::{contracterror, contractevent, contracttype, Address, Env, String};
-pub use ledger::{QUOTE_TTL_LEDGERS};
 
 /// Current event schema version.
 pub const POLICY_EVENT_VERSION: u32 = 1;
@@ -489,7 +489,13 @@ pub fn publish_policy_expired_if_due(env: &Env, policy: &Policy, now: u32) {
     {
         return;
     }
-    events::emit_policy_expired(env, &policy.holder, policy.policy_id, policy.end_ledger, now);
+    events::emit_policy_expired(
+        env,
+        &policy.holder,
+        policy.policy_id,
+        policy.end_ledger,
+        now,
+    );
     storage::set_policy_expired_event_end_ledger(
         env,
         &policy.holder,
@@ -551,11 +557,7 @@ pub fn renew_policy(
         return Err(PolicyError::TooManyStrikesForRenewal);
     }
 
-    if !ledger::is_in_renewal_window(
-        now,
-        policy.end_ledger,
-        ledger::RENEWAL_WINDOW_LEDGERS,
-    ) {
+    if !ledger::is_in_renewal_window(now, policy.end_ledger, ledger::RENEWAL_WINDOW_LEDGERS) {
         return Err(PolicyError::NotInRenewalWindow);
     }
 
@@ -578,7 +580,9 @@ pub fn renew_policy(
         crate::calculator::compute_quote(env, &input, policy.coverage, false, QUOTE_TTL_LEDGERS)
             .map_err(|e| match e {
                 Error::CalculatorPaused => PolicyError::ContractPaused,
-                Error::CalculatorCallFailed | Error::CalculatorNotSet => PolicyError::PremiumOverflow,
+                Error::CalculatorCallFailed | Error::CalculatorNotSet => {
+                    PolicyError::PremiumOverflow
+                }
                 _ => PolicyError::PremiumOverflow,
             })?;
 

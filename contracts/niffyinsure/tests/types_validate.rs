@@ -11,7 +11,7 @@ use niffyinsure::{
         check_risk_input, Error,
     },
 };
-use soroban_sdk::{testutils::Address as _, BytesN, Address, Env, String, Vec};
+use soroban_sdk::{testutils::Address as _, Address, BytesN, Env, String, Vec};
 
 fn non_zero_hash(env: &Env) -> BytesN<32> {
     let mut a = [0u8; 32];
@@ -367,7 +367,10 @@ fn safety_score_zero_passes() {
 
 #[test]
 fn safety_score_at_max_passes() {
-    assert_eq!(check_risk_input(&dummy_risk_input(SAFETY_SCORE_MAX)), Ok(()));
+    assert_eq!(
+        check_risk_input(&dummy_risk_input(SAFETY_SCORE_MAX)),
+        Ok(())
+    );
 }
 
 #[test]

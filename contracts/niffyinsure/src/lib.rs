@@ -2,16 +2,16 @@
 #![allow(clippy::too_many_arguments)]
 
 pub mod admin;
-pub mod events;
 mod calculator;
 mod claim;
+pub mod events;
 mod governance_token;
 mod ledger;
-mod rolling_claim_cap;
 mod policy;
 mod policy_lifecycle;
 pub mod premium;
 pub mod premium_pure;
+mod rolling_claim_cap;
 pub mod storage;
 mod token;
 pub mod types;
@@ -234,7 +234,15 @@ impl NiffyInsure {
         expected_nonce: Option<u64>,
     ) -> Result<u64, validate::Error> {
         holder.require_auth();
-        claim::file_claim(&env, &holder, policy_id, amount, &details, &evidence, expected_nonce)
+        claim::file_claim(
+            &env,
+            &holder,
+            policy_id,
+            amount,
+            &details,
+            &evidence,
+            expected_nonce,
+        )
     }
 
     /// Claimant-only: withdraw before any vote is cast (`Processing`, zero tallies).
@@ -286,10 +294,7 @@ impl NiffyInsure {
         storage::get_voting_duration_ledgers(&env)
     }
 
-    pub fn admin_set_vote_duration_ledgers(
-        env: Env,
-        ledgers: u32,
-    ) -> Result<(), validate::Error> {
+    pub fn admin_set_vote_duration_ledgers(env: Env, ledgers: u32) -> Result<(), validate::Error> {
         let admin = storage::get_admin(&env);
         admin.require_auth();
         ledger::validate_voting_duration_ledgers(ledgers)?;
@@ -360,11 +365,7 @@ impl NiffyInsure {
     /// Empty page (len == 0) means no more results exist beyond the cursor.
     /// Because claim_ids are monotonically increasing and never deleted, a
     /// stale cursor never panics — it simply returns an empty page.
-    pub fn list_claims(
-        env: Env,
-        start_after: u64,
-        limit: u32,
-    ) -> Vec<types::ClaimSummary> {
+    pub fn list_claims(env: Env, start_after: u64, limit: u32) -> Vec<types::ClaimSummary> {
         let cap = limit.min(types::PAGE_SIZE_MAX);
         let total = storage::get_claim_counter(&env);
         let mut results: Vec<types::ClaimSummary> = Vec::new(&env);
@@ -558,11 +559,7 @@ impl NiffyInsure {
     /// If set, the `end_ledger` for which a [`policy::PolicyExpired`] event was already recorded
     /// (one row per policy). Indexers may use this with `get_policy` for idempotency checks.
     /// Name is shortened to satisfy the 32-char Soroban export limit.
-    pub fn get_pol_exp_evt_end_ledger(
-        env: Env,
-        holder: Address,
-        policy_id: u32,
-    ) -> Option<u32> {
+    pub fn get_pol_exp_evt_end_ledger(env: Env, holder: Address, policy_id: u32) -> Option<u32> {
         storage::get_policy_expired_event_end_ledger(&env, &holder, policy_id)
     }
 
@@ -841,11 +838,7 @@ impl NiffyInsure {
 
     /// Remaining amount that can be **filed** this window before hitting the cap (`0` if at/over cap).
     /// Indexers can combine with cap and `get_rolling_claim_state` for full UI.
-    pub fn get_rolling_claim_remaining(
-        env: Env,
-        holder: Address,
-        policy_id: u32,
-    ) -> i128 {
+    pub fn get_rolling_claim_remaining(env: Env, holder: Address, policy_id: u32) -> i128 {
         let now = env.ledger().sequence();
         rolling_claim_cap::remaining_under_cap(&env, &holder, policy_id, now)
     }
@@ -866,7 +859,10 @@ impl NiffyInsure {
     }
 
     /// Admin: set rolling window length in ledgers. Emits `RollingClaimWindowLedgersUpdated`.
-    pub fn set_rolling_claim_window_ledgers(env: Env, window_ledgers: u32) -> Result<(), AdminError> {
+    pub fn set_rolling_claim_window_ledgers(
+        env: Env,
+        window_ledgers: u32,
+    ) -> Result<(), AdminError> {
         let _admin = admin::require_admin(&env);
         rolling_claim_cap::try_set_window_ledgers(&env, window_ledgers)
     }
@@ -981,9 +977,11 @@ impl NiffyInsure {
         };
         let key = storage::DataKey::Policy(holder.clone(), policy_id);
         env.storage().persistent().set(&key, &policy);
-        env.storage()
-            .persistent()
-            .extend_ttl(&key, storage::PERSISTENT_TTL_THRESHOLD, storage::PERSISTENT_TTL_EXTEND_TO);
+        env.storage().persistent().extend_ttl(
+            &key,
+            storage::PERSISTENT_TTL_THRESHOLD,
+            storage::PERSISTENT_TTL_EXTEND_TO,
+        );
         storage::add_voter(&env, &holder);
     }
 
@@ -995,8 +993,7 @@ impl NiffyInsure {
     /// without going through token transfer. Mirrors what renew_policy does
     /// to the policy record after premium collection.
     pub fn test_renew_policy(env: Env, holder: Address, policy_id: u32) {
-        let mut policy = storage::get_policy(&env, &holder, policy_id)
-            .expect("policy not found");
+        let mut policy = storage::get_policy(&env, &holder, policy_id).expect("policy not found");
         let new_start = policy.end_ledger.saturating_add(1);
         let new_end = new_start + ledger::POLICY_DURATION_LEDGERS;
         policy.start_ledger = new_start;

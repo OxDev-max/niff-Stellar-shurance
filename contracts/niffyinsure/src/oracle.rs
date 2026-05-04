@@ -20,7 +20,7 @@
 
 #![cfg(feature = "experimental")]
 
-use soroban_sdk::{Address, BytesN, Bytes, Env};
+use soroban_sdk::{Address, Bytes, BytesN, Env};
 
 use crate::storage;
 use crate::types::{OracleSource, OracleTrigger, TriggerStatus};
@@ -133,7 +133,7 @@ pub fn validate_trigger(
 
     // 4. Update status
     let new_status = TriggerStatus::Validated;
-    check_trigger_status_transition(current_status, new_status)?;
+    check_trigger_status_transition(current_status, new_status.clone())?;
     storage::set_trigger_status(env, trigger_id, new_status);
 
     Ok(())
@@ -153,7 +153,7 @@ pub fn execute_trigger(
     _executor: &soroban_sdk::Address,
 ) -> Result<TriggerStatus, OracleError> {
     // 1. Get the trigger
-    let trigger =
+    let _trigger =
         storage::get_oracle_trigger(env, trigger_id).ok_or(OracleError::PolicyNotFound)?;
 
     // 2. Check current status
@@ -174,8 +174,8 @@ pub fn execute_trigger(
 
     // 4. Update status
     let new_status = TriggerStatus::Executed;
-    check_trigger_status_transition(current_status, new_status)?;
-    storage::set_trigger_status(env, trigger_id, new_status);
+    check_trigger_status_transition(current_status, new_status.clone())?;
+    storage::set_trigger_status(env, trigger_id, new_status.clone());
 
     Ok(new_status)
 }

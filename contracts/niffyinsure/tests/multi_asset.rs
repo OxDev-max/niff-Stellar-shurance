@@ -68,7 +68,11 @@ fn initiate(t: &TestEnv, holder: &Address, asset: &Address) -> niffyinsure::type
         &5u32,
         &1_000_000_000i128,
         asset,
-        &niffyinsure::types::InitiatePolicyOptions { beneficiary: None, deductible: None, expected_nonce: None },
+        &niffyinsure::types::InitiatePolicyOptions {
+            beneficiary: None,
+            deductible: None,
+            expected_nonce: None,
+        },
     )
 }
 
@@ -107,7 +111,11 @@ fn initiate_policy_rejects_non_allowlisted_asset() {
         &3u32,
         &500_000_000i128,
         &token_b,
-        &niffyinsure::types::InitiatePolicyOptions { beneficiary: None, deductible: None, expected_nonce: None },
+        &niffyinsure::types::InitiatePolicyOptions {
+            beneficiary: None,
+            deductible: None,
+            expected_nonce: None,
+        },
     );
     assert!(result.is_err(), "expected AssetNotAllowed error");
 }
@@ -384,7 +392,11 @@ fn removing_asset_from_allowlist_blocks_new_policies() {
         &5u32,
         &1_000_000_000i128,
         &token_b,
-        &niffyinsure::types::InitiatePolicyOptions { beneficiary: None, deductible: None, expected_nonce: None },
+        &niffyinsure::types::InitiatePolicyOptions {
+            beneficiary: None,
+            deductible: None,
+            expected_nonce: None,
+        },
     );
     assert!(result.is_err(), "expected AssetNotAllowed after removal");
 }
@@ -522,8 +534,22 @@ fn two_asset_policies_payout_independently() {
     let holder_a = Address::generate(&t.env);
     let holder_b = Address::generate(&t.env);
 
-    fund_and_approve(&t.env, &t.client, &t.token_a, &t.token_a_admin, &holder_a, 1_000_000_000i128);
-    fund_and_approve(&t.env, &t.client, &token_b, &token_b_admin, &holder_b, 1_000_000_000i128);
+    fund_and_approve(
+        &t.env,
+        &t.client,
+        &t.token_a,
+        &t.token_a_admin,
+        &holder_a,
+        1_000_000_000i128,
+    );
+    fund_and_approve(
+        &t.env,
+        &t.client,
+        &token_b,
+        &token_b_admin,
+        &holder_b,
+        1_000_000_000i128,
+    );
 
     // Fund contract treasury for both assets.
     t.token_a_admin.mint(&t.contract_id, &10_000_000i128);
@@ -555,8 +581,14 @@ fn two_asset_policies_payout_independently() {
     };
 
     t.env.as_contract(&t.contract_id, || {
-        niffyinsure::storage::set_claim(&t.env, &make_claim(20, policy_a.policy_id, &holder_a, &t.token_a));
-        niffyinsure::storage::set_claim(&t.env, &make_claim(21, policy_b.policy_id, &holder_b, &token_b));
+        niffyinsure::storage::set_claim(
+            &t.env,
+            &make_claim(20, policy_a.policy_id, &holder_a, &t.token_a),
+        );
+        niffyinsure::storage::set_claim(
+            &t.env,
+            &make_claim(21, policy_b.policy_id, &holder_b, &token_b),
+        );
     });
 
     let ta_client = token::Client::new(&t.env, &t.token_a);

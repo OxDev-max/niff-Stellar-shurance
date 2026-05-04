@@ -18,7 +18,10 @@ use niffyinsure::{
     types::{AgeBand, CoverageTier, InitiatePolicyOptions, PolicyType, RegionTier},
     NiffyInsureClient,
 };
-use soroban_sdk::{testutils::{Address as _, Ledger}, Address, Env, String};
+use soroban_sdk::{
+    testutils::{Address as _, Ledger},
+    Address, Env, String,
+};
 
 fn setup() -> (Env, NiffyInsureClient<'static>, Address, Address) {
     let env = Env::default();
@@ -42,11 +45,21 @@ fn initiate(client: &NiffyInsureClient, holder: &Address, token: &Address, nonce
         &10u32,
         &1_000_000i128,
         token,
-        &InitiatePolicyOptions { beneficiary: None, deductible: None, expected_nonce: nonce },
+        &InitiatePolicyOptions {
+            beneficiary: None,
+            deductible: None,
+            expected_nonce: nonce,
+        },
     );
 }
 
-fn file(client: &NiffyInsureClient, holder: &Address, policy_id: u32, env: &Env, nonce: Option<u64>) -> u64 {
+fn file(
+    client: &NiffyInsureClient,
+    holder: &Address,
+    policy_id: u32,
+    env: &Env,
+    nonce: Option<u64>,
+) -> u64 {
     let details = String::from_str(env, "nonce test claim");
     let ev = common::empty_evidence(env);
     client.file_claim(holder, &policy_id, &100_000i128, &details, &ev, &nonce)
@@ -94,9 +107,16 @@ fn correct_nonce_passes_and_increments() {
         &10u32,
         &1_000_000i128,
         &token,
-        &InitiatePolicyOptions { beneficiary: None, deductible: None, expected_nonce: Some(1) },
+        &InitiatePolicyOptions {
+            beneficiary: None,
+            deductible: None,
+            expected_nonce: Some(1),
+        },
     );
-    assert!(result.is_ok(), "expected_nonce=1 should pass after first call");
+    assert!(
+        result.is_ok(),
+        "expected_nonce=1 should pass after first call"
+    );
     assert_eq!(client.get_nonce(&holder), 2u64);
 }
 
@@ -117,7 +137,11 @@ fn mismatched_nonce_reverts() {
         &10u32,
         &1_000_000i128,
         &token,
-        &InitiatePolicyOptions { beneficiary: None, deductible: None, expected_nonce: Some(1) },
+        &InitiatePolicyOptions {
+            beneficiary: None,
+            deductible: None,
+            expected_nonce: Some(1),
+        },
     );
     assert!(result.is_err(), "wrong nonce must revert");
     // Nonce must not have changed
@@ -144,10 +168,18 @@ fn gap_nonce_reverts() {
         &10u32,
         &1_000_000i128,
         &token,
-        &InitiatePolicyOptions { beneficiary: None, deductible: None, expected_nonce: Some(2) },
+        &InitiatePolicyOptions {
+            beneficiary: None,
+            deductible: None,
+            expected_nonce: Some(2),
+        },
     );
     assert!(result.is_err(), "gap nonce must revert");
-    assert_eq!(client.get_nonce(&holder), 1u64, "nonce must not change on revert");
+    assert_eq!(
+        client.get_nonce(&holder),
+        1u64,
+        "nonce must not change on revert"
+    );
 }
 
 // ── Nonce is per-holder ───────────────────────────────────────────────────────
@@ -231,7 +263,11 @@ fn file_claim_wrong_nonce_does_not_mutate_nonzero_nonce() {
     let ev = common::empty_evidence(&env);
     let result = client.try_file_claim(&holder, &3u32, &100_000i128, &details, &ev, &Some(0u64));
     assert!(result.is_err(), "stale nonce must revert");
-    assert_eq!(client.get_nonce(&holder), 2u64, "nonce must remain 2 after failed call");
+    assert_eq!(
+        client.get_nonce(&holder),
+        2u64,
+        "nonce must remain 2 after failed call"
+    );
 }
 
 // ── Nonce increments correctly across interleaved initiate + file_claim ───────

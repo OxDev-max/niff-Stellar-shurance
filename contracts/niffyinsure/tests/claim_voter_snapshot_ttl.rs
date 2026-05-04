@@ -93,11 +93,7 @@ fn refresh_snapshot_is_permissionless_and_preserves_tallies() {
 #[test]
 fn refresh_snapshot_errors_when_claim_missing() {
     let (_env, client, _) = setup();
-    let err = client
-        .try_refresh_snapshot(&999u64)
-        .err()
-        .unwrap()
-        .unwrap();
+    let err = client.try_refresh_snapshot(&999u64).err().unwrap().unwrap();
     assert_eq!(err, ValidateError::ClaimNotFound.into());
 }
 
@@ -109,11 +105,7 @@ fn refresh_snapshot_errors_when_snapshot_gone() {
     let cid = file(&client, &holder, 100_000, &env);
     remove_snapshot_env(&env, &contract_id, cid);
 
-    let err = client
-        .try_refresh_snapshot(&cid)
-        .err()
-        .unwrap()
-        .unwrap();
+    let err = client.try_refresh_snapshot(&cid).err().unwrap().unwrap();
     assert_eq!(err, ValidateError::VoterSnapshotExpired.into());
 }
 

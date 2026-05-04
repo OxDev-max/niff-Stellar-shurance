@@ -2,12 +2,12 @@
 
 #![cfg(test)]
 
+use niffyinsure::policy_lifecycle::PolicyError as LifecyclePolicyError;
 use niffyinsure::{
     types::{ClaimStatus, VoteOption, DEFAULT_GRACE_PERIOD_LEDGERS},
     validate::Error,
     NiffyInsureClient,
 };
-use niffyinsure::policy_lifecycle::PolicyError as LifecyclePolicyError;
 use soroban_sdk::{
     testutils::{Address as _, Ledger},
     vec, Address, Env, String,
@@ -68,7 +68,9 @@ fn process_expired_reverts_before_lapse() {
     let end = 10_000u32;
     seed(&client, &holder, 500_000, end);
 
-    let too_early = end.saturating_add(DEFAULT_GRACE_PERIOD_LEDGERS).saturating_sub(1);
+    let too_early = end
+        .saturating_add(DEFAULT_GRACE_PERIOD_LEDGERS)
+        .saturating_sub(1);
     env.ledger().with_mut(|l| l.sequence_number = too_early);
 
     let err = client
@@ -120,7 +122,8 @@ fn process_deadline_finalizes_like_finalize_claim() {
     let cid = client.file_claim(&h1, &1u32, &100_000i128, &details, &urls, &None);
 
     let deadline = client.get_claim(&cid).voting_deadline_ledger;
-    env.ledger().with_mut(|l| l.sequence_number = deadline.saturating_add(1));
+    env.ledger()
+        .with_mut(|l| l.sequence_number = deadline.saturating_add(1));
 
     let st = client.process_deadline(&cid);
     assert_ne!(st, ClaimStatus::Processing);
@@ -180,7 +183,8 @@ fn process_deadline_returns_calculator_paused_when_claims_paused() {
     let cid = client.file_claim(&h1, &1u32, &100_000i128, &details, &urls, &None);
 
     let deadline = client.get_claim(&cid).voting_deadline_ledger;
-    env.ledger().with_mut(|l| l.sequence_number = deadline.saturating_add(1));
+    env.ledger()
+        .with_mut(|l| l.sequence_number = deadline.saturating_add(1));
 
     client.pause_claims(&admin, &0u32);
     let err = client.try_process_deadline(&cid).err().unwrap().unwrap();

@@ -24,7 +24,7 @@ use crate::types::{Claim, MultiplierTable, Policy, RollingClaimWindowState, Vote
 /// ## Policy Duration Relationship
 ///
 /// - Maximum policy duration: 518,400 ledgers (~30 days)
-/// - TTL extension target: 6,000,000 ledgers (~1 year) 
+/// - TTL extension target: 6,000,000 ledgers (~1 year)
 /// - Safety factor: ~11.6x policy duration
 ///
 /// This ensures policies can complete multiple renewal cycles without TTL expiry,
@@ -209,8 +209,12 @@ pub fn has_pending_admin_action(env: &Env) -> bool {
 }
 
 pub fn set_pending_admin_action(env: &Env, pending: &crate::admin::PendingAdminAction) {
-    env.storage().instance().set(&DataKey::PendingAdminAction, pending);
-    env.storage().instance().extend_ttl(PERSISTENT_TTL_THRESHOLD, PERSISTENT_TTL_EXTEND_TO);
+    env.storage()
+        .instance()
+        .set(&DataKey::PendingAdminAction, pending);
+    env.storage()
+        .instance()
+        .extend_ttl(PERSISTENT_TTL_THRESHOLD, PERSISTENT_TTL_EXTEND_TO);
 }
 
 pub fn get_pending_admin_action(env: &Env) -> Option<crate::admin::PendingAdminAction> {
@@ -218,7 +222,9 @@ pub fn get_pending_admin_action(env: &Env) -> Option<crate::admin::PendingAdminA
 }
 
 pub fn clear_pending_admin_action(env: &Env) {
-    env.storage().instance().remove(&DataKey::PendingAdminAction);
+    env.storage()
+        .instance()
+        .remove(&DataKey::PendingAdminAction);
 }
 
 /// Check expiry and auto-clear/emit if expired.
@@ -249,7 +255,7 @@ pub fn get_admin_action_window_ledgers(env: &Env) -> u32 {
     env.storage()
         .instance()
         .get(&DataKey::AdminActionWindowLedgers)
-        .unwrap_or(100u32)  // Default ~30min @ 5s/ledger
+        .unwrap_or(100u32) // Default ~30min @ 5s/ledger
 }
 
 // ── Token (default asset) ─────────────────────────────────────────────────────
@@ -692,9 +698,7 @@ pub fn get_claim_voters(env: &Env, claim_id: u64) -> Vec<Address> {
 
 pub fn set_last_claim_ledger(env: &Env, holder: &Address, ledger: u32) {
     let key = DataKey::LastClaimLedger(holder.clone());
-    env.storage()
-        .persistent()
-        .set(&key, &ledger);
+    env.storage().persistent().set(&key, &ledger);
     env.storage()
         .persistent()
         .extend_ttl(&key, PERSISTENT_TTL_THRESHOLD, PERSISTENT_TTL_EXTEND_TO);
@@ -718,9 +722,11 @@ pub fn set_claim_rate_limit_prev(env: &Env, claim_id: u64, prev: Option<u32>) {
     if let Some(ledger) = prev {
         let key = DataKey::ClaimRateLimitPrev(claim_id);
         env.storage().persistent().set(&key, &ledger);
-        env.storage()
-            .persistent()
-            .extend_ttl(&key, PERSISTENT_TTL_THRESHOLD, PERSISTENT_TTL_EXTEND_TO);
+        env.storage().persistent().extend_ttl(
+            &key,
+            PERSISTENT_TTL_THRESHOLD,
+            PERSISTENT_TTL_EXTEND_TO,
+        );
     }
 }
 
@@ -815,7 +821,9 @@ pub fn get_appeal_vote(env: &Env, claim_id: u64, voter: &Address) -> Option<Vote
 // ── Rolling claim cap (instance + persistent) ─────────────────────────────────
 
 pub fn set_rolling_claim_cap(env: &Env, cap: i128) {
-    env.storage().instance().set(&DataKey::RollingClaimCap, &cap);
+    env.storage()
+        .instance()
+        .set(&DataKey::RollingClaimCap, &cap);
 }
 
 pub fn get_rolling_claim_cap(env: &Env) -> i128 {
@@ -843,10 +851,9 @@ pub fn get_rolling_claim_state(
     holder: &Address,
     policy_id: u32,
 ) -> Option<RollingClaimWindowState> {
-    env.storage().persistent().get(&DataKey::RollingClaimState(
-        holder.clone(),
-        policy_id,
-    ))
+    env.storage()
+        .persistent()
+        .get(&DataKey::RollingClaimState(holder.clone(), policy_id))
 }
 
 pub fn set_rolling_claim_state(
@@ -870,10 +877,12 @@ pub fn get_policy_expired_event_end_ledger(
     holder: &Address,
     policy_id: u32,
 ) -> Option<u32> {
-    env.storage().instance().get(&DataKey::PolicyExpiredEventEndLedger(
-        holder.clone(),
-        policy_id,
-    ))
+    env.storage()
+        .instance()
+        .get(&DataKey::PolicyExpiredEventEndLedger(
+            holder.clone(),
+            policy_id,
+        ))
 }
 
 pub fn set_policy_expired_event_end_ledger(
@@ -974,7 +983,9 @@ pub fn get_trigger_status(env: &Env, trigger_id: u64) -> Option<crate::types::Tr
 
 #[cfg(feature = "experimental")]
 pub fn set_oracle_enabled(env: &Env, enabled: bool) {
-    env.storage().instance().set(&DataKey::OracleEnabled, &enabled);
+    env.storage()
+        .instance()
+        .set(&DataKey::OracleEnabled, &enabled);
 }
 
 #[cfg(feature = "experimental")]
@@ -1084,14 +1095,18 @@ pub fn bump_policy_ttl(env: &Env, holder: &Address, policy_id: u32) -> bool {
         return false;
     }
 
-    env.storage()
-        .persistent()
-        .extend_ttl(&policy_key, PERSISTENT_TTL_THRESHOLD, PERSISTENT_TTL_EXTEND_TO);
+    env.storage().persistent().extend_ttl(
+        &policy_key,
+        PERSISTENT_TTL_THRESHOLD,
+        PERSISTENT_TTL_EXTEND_TO,
+    );
 
     let counter_key = DataKey::PolicyCounter(holder.clone());
-    env.storage()
-        .persistent()
-        .extend_ttl(&counter_key, PERSISTENT_TTL_THRESHOLD, PERSISTENT_TTL_EXTEND_TO);
+    env.storage().persistent().extend_ttl(
+        &counter_key,
+        PERSISTENT_TTL_THRESHOLD,
+        PERSISTENT_TTL_EXTEND_TO,
+    );
 
     true
 }
@@ -1119,17 +1134,21 @@ pub fn bump_claim_ttl(env: &Env, claim_id: u64) -> bool {
         return false;
     }
 
-    env.storage()
-        .persistent()
-        .extend_ttl(&claim_key, PERSISTENT_TTL_THRESHOLD, PERSISTENT_TTL_EXTEND_TO);
+    env.storage().persistent().extend_ttl(
+        &claim_key,
+        PERSISTENT_TTL_THRESHOLD,
+        PERSISTENT_TTL_EXTEND_TO,
+    );
 
     extend_claim_voters_snapshot_ttl(env, claim_id);
 
     let quorum_key = DataKey::ClaimQuorumBps(claim_id);
     if env.storage().persistent().has(&quorum_key) {
-        env.storage()
-            .persistent()
-            .extend_ttl(&quorum_key, PERSISTENT_TTL_THRESHOLD, PERSISTENT_TTL_EXTEND_TO);
+        env.storage().persistent().extend_ttl(
+            &quorum_key,
+            PERSISTENT_TTL_THRESHOLD,
+            PERSISTENT_TTL_EXTEND_TO,
+        );
     }
 
     true
@@ -1139,14 +1158,22 @@ pub fn bump_claim_ttl(env: &Env, claim_id: u64) -> bool {
 /// Use off-chain RPC `getLedgerEntries` to read the actual remaining TTL value.
 pub fn get_policy_ttl_info(env: &Env, holder: &Address, policy_id: u32) -> Option<u32> {
     let key = DataKey::Policy(holder.clone(), policy_id);
-    if env.storage().persistent().has(&key) { Some(PERSISTENT_TTL_EXTEND_TO) } else { None }
+    if env.storage().persistent().has(&key) {
+        Some(PERSISTENT_TTL_EXTEND_TO)
+    } else {
+        None
+    }
 }
 
 /// Returns `true` if the claim persistent entry exists (not expired / evicted).
 /// Use off-chain RPC `getLedgerEntries` to read the actual remaining TTL value.
 pub fn get_claim_ttl_info(env: &Env, claim_id: u64) -> Option<u32> {
     let key = DataKey::Claim(claim_id);
-    if env.storage().persistent().has(&key) { Some(PERSISTENT_TTL_EXTEND_TO) } else { None }
+    if env.storage().persistent().has(&key) {
+        Some(PERSISTENT_TTL_EXTEND_TO)
+    } else {
+        None
+    }
 }
 
 // ── Non-experimental stubs (panic guards) ────────────────────────────────────

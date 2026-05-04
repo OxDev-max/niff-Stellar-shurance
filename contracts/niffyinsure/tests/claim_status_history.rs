@@ -73,7 +73,11 @@ fn status_history_order_matches_transitions_and_get_claim_history() {
         &80,
         &1_000_000,
         &token,
-        &niffyinsure::types::InitiatePolicyOptions { beneficiary: None, deductible: None, expected_nonce: None },
+        &niffyinsure::types::InitiatePolicyOptions {
+            beneficiary: None,
+            deductible: None,
+            expected_nonce: None,
+        },
     );
 
     let details = String::from_str(&env, "timeline test");
@@ -86,10 +90,7 @@ fn status_history_order_matches_transitions_and_get_claim_history() {
         claim.status_history.get(0).unwrap().status,
         ClaimStatus::Processing
     );
-    assert_eq!(
-        claim.status_history.get(0).unwrap().ledger,
-        INITIAL_LEDGER
-    );
+    assert_eq!(claim.status_history.get(0).unwrap().ledger, INITIAL_LEDGER);
 
     client.vote_on_claim(&voter1, &claim_id, &VoteOption::Approve);
     client.vote_on_claim(&voter2, &claim_id, &VoteOption::Approve);
@@ -153,7 +154,11 @@ fn status_history_finalize_reject_sequence() {
         &80,
         &1_000_000,
         &token,
-        &niffyinsure::types::InitiatePolicyOptions { beneficiary: None, deductible: None, expected_nonce: None },
+        &niffyinsure::types::InitiatePolicyOptions {
+            beneficiary: None,
+            deductible: None,
+            expected_nonce: None,
+        },
     );
 
     // 100% participation required so a 1–1 split does not auto-finalize before the deadline.

@@ -1,7 +1,10 @@
 #![cfg(test)]
 
 use niffyinsure::{
-    premium::{compute_premium, default_multiplier_table, admin_set_premium_multiplier, MAX_MULTIPLIER, MIN_MULTIPLIER, MAX_SAFETY_DISCOUNT},
+    premium::{
+        admin_set_premium_multiplier, compute_premium, default_multiplier_table, MAX_MULTIPLIER,
+        MAX_SAFETY_DISCOUNT, MIN_MULTIPLIER,
+    },
     types::{AgeBand, CoverageTier, MultiplierKey, RegionTier, RiskInput},
 };
 use soroban_sdk::Env;
@@ -165,7 +168,10 @@ fn age_multiplier_out_of_bounds_is_rejected() {
         MultiplierKey::Age(AgeBand::Senior),
         MAX_MULTIPLIER + 500,
     );
-    assert_eq!(result, Err(niffyinsure::validate::Error::AgeMultiplierOutOfBounds));
+    assert_eq!(
+        result,
+        Err(niffyinsure::validate::Error::AgeMultiplierOutOfBounds)
+    );
 }
 
 #[test]
@@ -177,19 +183,22 @@ fn coverage_multiplier_out_of_bounds_is_rejected() {
         MultiplierKey::Coverage(CoverageTier::Premium),
         MIN_MULTIPLIER - 1,
     );
-    assert_eq!(result, Err(niffyinsure::validate::Error::CoverageMultiplierOutOfBounds));
+    assert_eq!(
+        result,
+        Err(niffyinsure::validate::Error::CoverageMultiplierOutOfBounds)
+    );
 }
 
 #[test]
 fn safety_discount_above_max_is_rejected() {
     let (env, _admin) = setup_env_with_table();
 
-    let result = admin_set_premium_multiplier(
-        &env,
-        MultiplierKey::SafetyDiscount,
-        MAX_SAFETY_DISCOUNT + 1,
+    let result =
+        admin_set_premium_multiplier(&env, MultiplierKey::SafetyDiscount, MAX_SAFETY_DISCOUNT + 1);
+    assert_eq!(
+        result,
+        Err(niffyinsure::validate::Error::SafetyDiscountOutOfBounds)
     );
-    assert_eq!(result, Err(niffyinsure::validate::Error::SafetyDiscountOutOfBounds));
 }
 
 #[test]
@@ -197,7 +206,10 @@ fn safety_discount_negative_is_rejected() {
     let (env, _admin) = setup_env_with_table();
 
     let result = admin_set_premium_multiplier(&env, MultiplierKey::SafetyDiscount, -1);
-    assert_eq!(result, Err(niffyinsure::validate::Error::SafetyDiscountOutOfBounds));
+    assert_eq!(
+        result,
+        Err(niffyinsure::validate::Error::SafetyDiscountOutOfBounds)
+    );
 }
 
 #[test]

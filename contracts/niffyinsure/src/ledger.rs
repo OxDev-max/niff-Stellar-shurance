@@ -173,6 +173,7 @@ pub fn is_in_renewal_window(now: u32, end: u32, window: u32) -> bool {
 /// - `end <= now < end+grace` → grace period (late renewal, no coverage gap)
 /// - `now >= end + grace`     → lapsed; renewal rejected
 #[inline]
+#[allow(dead_code)]
 pub fn is_in_renewal_window_with_grace(now: u32, end: u32, window: u32, grace: u32) -> bool {
     let renewal_start = end.saturating_sub(window);
     let grace_end = end.saturating_add(grace);

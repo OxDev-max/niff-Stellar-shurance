@@ -18,7 +18,7 @@
 
 use niffyinsure::types::{OracleSource, TriggerStatus};
 use niffyinsure::validate::OracleError;
-use soroban_sdk::{testutils::Address as _, Address, BytesN, Bytes, Env};
+use soroban_sdk::{testutils::Address as _, Address, Bytes, BytesN, Env};
 
 // ═════════════════════════════════════════════════════════════════════════════
 // DEFAULT BUILD TESTS (feature = std without "experimental")
@@ -286,7 +286,11 @@ mod experimental_build_tests {
             policy_id,
             event_type: niffyinsure::types::TriggerEventType::WeatherEvent,
             source: OracleSource::Registered(source_addr),
-            payload: { let mut b = Bytes::new(&env); b.push_back(payload_byte); b },
+            payload: {
+                let mut b = Bytes::new(&env);
+                b.push_back(payload_byte);
+                b
+            },
             timestamp,
             trigger_ledger: 1000,
             nonce,
@@ -327,7 +331,11 @@ mod experimental_build_tests {
             policy_id,
             event_type: niffyinsure::types::TriggerEventType::WeatherEvent,
             source: OracleSource::Registered(source_addr),
-            payload: { let mut b = Bytes::new(&env); b.push_back(1u8); b },
+            payload: {
+                let mut b = Bytes::new(&env);
+                b.push_back(1u8);
+                b
+            },
             timestamp,
             trigger_ledger: 1000,
             nonce,
@@ -341,23 +349,38 @@ mod experimental_build_tests {
     #[test]
     fn check_trigger_status_transition_valid_paths() {
         assert!(niffyinsure::validate::check_trigger_status_transition(
-            TriggerStatus::Pending, TriggerStatus::Validated).is_ok());
+            TriggerStatus::Pending,
+            TriggerStatus::Validated
+        )
+        .is_ok());
         assert!(niffyinsure::validate::check_trigger_status_transition(
-            TriggerStatus::Pending, TriggerStatus::Rejected).is_ok());
+            TriggerStatus::Pending,
+            TriggerStatus::Rejected
+        )
+        .is_ok());
         assert!(niffyinsure::validate::check_trigger_status_transition(
-            TriggerStatus::Validated, TriggerStatus::Executed).is_ok());
+            TriggerStatus::Validated,
+            TriggerStatus::Executed
+        )
+        .is_ok());
     }
 
     #[test]
     fn check_trigger_status_transition_invalid_paths() {
         assert_eq!(
             niffyinsure::validate::check_trigger_status_transition(
-                TriggerStatus::Executed, TriggerStatus::Validated),
-            Err(OracleError::TriggerAlreadyProcessed));
+                TriggerStatus::Executed,
+                TriggerStatus::Validated
+            ),
+            Err(OracleError::TriggerAlreadyProcessed)
+        );
         assert_eq!(
             niffyinsure::validate::check_trigger_status_transition(
-                TriggerStatus::Rejected, TriggerStatus::Executed),
-            Err(OracleError::TriggerAlreadyProcessed));
+                TriggerStatus::Rejected,
+                TriggerStatus::Executed
+            ),
+            Err(OracleError::TriggerAlreadyProcessed)
+        );
     }
 }
 

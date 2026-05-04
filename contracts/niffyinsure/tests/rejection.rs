@@ -789,7 +789,10 @@ fn admin_terminated_policy_in_flight_claim_rejection_side_effects() {
 
     // Policy is now inactive.
     let policy_after_terminate = client.get_policy(&holder, &1u32).unwrap();
-    assert!(!policy_after_terminate.is_active, "policy must be inactive after admin termination");
+    assert!(
+        !policy_after_terminate.is_active,
+        "policy must be inactive after admin termination"
+    );
 
     // The in-flight claim can still be voted on and finalized.
     client.vote_on_claim(&voter_a, &cid, &VoteOption::Reject);
@@ -806,7 +809,10 @@ fn admin_terminated_policy_in_flight_claim_rejection_side_effects() {
     );
 
     // Policy remains inactive (no double-deactivation).
-    assert!(!policy.is_active, "policy must remain inactive after rejection side-effects");
+    assert!(
+        !policy.is_active,
+        "policy must remain inactive after rejection side-effects"
+    );
 
     // process_claim must fail — rejected claim never triggers payout.
     let result = client.try_process_claim(&cid);
@@ -845,8 +851,14 @@ fn on_reject_skips_deactivation_when_policy_already_inactive() {
     }
 
     let policy_before = client.get_policy(&holder, &1u32).unwrap();
-    assert!(policy_before.is_active, "policy must still be active before threshold");
-    assert_eq!(policy_before.strike_count, STRIKE_DEACTIVATION_THRESHOLD - 1);
+    assert!(
+        policy_before.is_active,
+        "policy must still be active before threshold"
+    );
+    assert_eq!(
+        policy_before.strike_count,
+        STRIKE_DEACTIVATION_THRESHOLD - 1
+    );
 
     // Admin terminates the policy before the threshold-triggering rejection.
     client.admin_terminate_policy(
@@ -865,7 +877,10 @@ fn on_reject_skips_deactivation_when_policy_already_inactive() {
         l.sequence_number += niffyinsure::types::RATE_LIMIT_WINDOW_LEDGERS + 1;
     });
     let result = client.try_file_claim(&holder, &1u32, &100_000, &details, &ev, &None);
-    assert!(result.is_err(), "file_claim must fail on an inactive policy");
+    assert!(
+        result.is_err(),
+        "file_claim must fail on an inactive policy"
+    );
 
     // Strike count remains at threshold - 1 (no new claim was filed).
     let policy = client.get_policy(&holder, &1u32).unwrap();
@@ -895,7 +910,10 @@ fn process_claim_returns_claim_not_approved_for_rejected_claim() {
     assert_eq!(client.get_claim(&cid).status, ClaimStatus::Rejected);
 
     let result = client.try_process_claim(&cid);
-    assert!(result.is_err(), "process_claim must fail for a Rejected claim");
+    assert!(
+        result.is_err(),
+        "process_claim must fail for a Rejected claim"
+    );
 
     // Verify the error is specifically ClaimNotApproved (not some other error).
     let err_debug = soroban_sdk::testutils::arbitrary::std::format!("{:?}", result.unwrap_err());

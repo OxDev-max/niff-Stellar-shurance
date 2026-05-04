@@ -17,12 +17,7 @@
 
 use soroban_sdk::{contractevent, Address, Env};
 
-use crate::{
-    admin::AdminError,
-    storage,
-    types::RollingClaimWindowState,
-    validate::Error,
-};
+use crate::{admin::AdminError, storage, types::RollingClaimWindowState, validate::Error};
 
 /// Minimum rolling cap (when admin configures a finite cap).
 pub const MIN_ROLLING_CLAIM_CAP: i128 = 1;
@@ -55,6 +50,7 @@ fn window_bucket_start(now: u32, window_len: u32) -> u32 {
 }
 
 /// Initialise defaults at contract `initialize` (effectively uncapped until admin sets a cap).
+#[allow(dead_code)]
 pub fn init_defaults(env: &Env) {
     storage::set_rolling_claim_cap(env, i128::MAX);
     storage::set_rolling_claim_window_ledgers(env, 1_000_000);
@@ -77,16 +73,12 @@ fn sync_state_to_ledger(
     }
 }
 
-fn persist_state(
-    env: &Env,
-    holder: &Address,
-    policy_id: u32,
-    state: &RollingClaimWindowState,
-) {
+fn persist_state(env: &Env, holder: &Address, policy_id: u32, state: &RollingClaimWindowState) {
     storage::set_rolling_claim_state(env, holder, policy_id, state);
 }
 
 /// Validate before accepting a new claim amount.
+#[allow(dead_code)]
 pub fn check_file_claim(
     env: &Env,
     holder: &Address,
@@ -112,6 +104,7 @@ pub fn check_file_claim(
 }
 
 /// Add a successful payout to the rolling accumulator (no cap check — in-flight safety).
+#[allow(dead_code)]
 pub fn record_claim_paid(env: &Env, holder: &Address, policy_id: u32, amount: i128, now: u32) {
     let mut state = sync_state_to_ledger(env, holder, policy_id, now);
     state.cumulative_paid = state.cumulative_paid.saturating_add(amount);
@@ -129,19 +122,22 @@ pub fn remaining_under_cap(env: &Env, holder: &Address, policy_id: u32, now: u32
 }
 
 pub fn try_set_cap(env: &Env, new_cap: i128) -> Result<(), AdminError> {
-    if new_cap != i128::MAX && (new_cap < MIN_ROLLING_CLAIM_CAP || new_cap > MAX_ROLLING_CLAIM_CAP)
-    {
+    if new_cap != i128::MAX && !(MIN_ROLLING_CLAIM_CAP..=MAX_ROLLING_CLAIM_CAP).contains(&new_cap) {
         return Err(AdminError::RollingClaimCapOutOfBounds);
     }
     let old = storage::get_rolling_claim_cap(env);
     storage::set_rolling_claim_cap(env, new_cap);
     storage::bump_instance(env);
-    ClaimCapUpdated { old_cap: old, new_cap }.publish(env);
+    ClaimCapUpdated {
+        old_cap: old,
+        new_cap,
+    }
+    .publish(env);
     Ok(())
 }
 
 pub fn try_set_window_ledgers(env: &Env, new_window: u32) -> Result<(), AdminError> {
-    if new_window < MIN_ROLLING_WINDOW_LEDGERS || new_window > MAX_ROLLING_WINDOW_LEDGERS {
+    if !(MIN_ROLLING_WINDOW_LEDGERS..=MAX_ROLLING_WINDOW_LEDGERS).contains(&new_window) {
         return Err(AdminError::RollingClaimWindowOutOfBounds);
     }
     let old = storage::get_rolling_claim_window_ledgers(env);

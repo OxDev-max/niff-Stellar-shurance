@@ -450,7 +450,7 @@ pub fn vote_on_claim(
         VoteOption::Reject => claim.reject_votes += 1,
     }
 
-    let eligible = snapshot.len() as u32;
+    let eligible = snapshot.len();
     let cast = claim.approve_votes + claim.reject_votes;
     let quorum_bps = storage::get_claim_quorum_bps(env, claim_id);
     if let Some(res) = resolve_plurality_if_quorum_met(
@@ -528,7 +528,7 @@ fn finalize_claim_inner(env: &Env, claim_id: u64) -> Result<ClaimStatus, Error> 
     let status_before = claim.status.clone();
 
     let voters = storage::get_claim_voters(env, claim_id);
-    let eligible = voters.len() as u32;
+    let eligible = voters.len();
     let cast = claim.approve_votes + claim.reject_votes;
     let quorum_bps = storage::get_claim_quorum_bps(env, claim_id);
 

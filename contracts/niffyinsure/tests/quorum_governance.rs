@@ -3,7 +3,9 @@
 #![cfg(test)]
 
 use niffyinsure::{
-    types::{ClaimStatus, VoteOption, DEFAULT_QUORUM_BPS, QUORUM_BPS_DENOMINATOR, VOTE_WINDOW_LEDGERS},
+    types::{
+        ClaimStatus, VoteOption, DEFAULT_QUORUM_BPS, QUORUM_BPS_DENOMINATOR, VOTE_WINDOW_LEDGERS,
+    },
     NiffyInsureClient,
 };
 use soroban_sdk::{

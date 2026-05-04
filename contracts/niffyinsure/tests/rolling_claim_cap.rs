@@ -46,12 +46,7 @@ fn mint(env: &Env, token: &Address, to: &Address, amount: i128) {
     token::StellarAssetClient::new(env, token).mint(to, &amount);
 }
 
-fn fund_and_bind(
-    env: &Env,
-    client: &NiffyInsureClient<'_>,
-    token: &Address,
-    holder: &Address,
-) {
+fn fund_and_bind(env: &Env, client: &NiffyInsureClient<'_>, token: &Address, holder: &Address) {
     mint(env, token, holder, 10_000_000_000i128);
     token::Client::new(env, token).approve(
         holder,
@@ -108,7 +103,11 @@ fn single_claim_at_cap_succeeds() {
         &80,
         &500_000i128,
         &token,
-        &niffyinsure::types::InitiatePolicyOptions { beneficiary: None, deductible: None, expected_nonce: None },
+        &niffyinsure::types::InitiatePolicyOptions {
+            beneficiary: None,
+            deductible: None,
+            expected_nonce: None,
+        },
     );
 
     let details = String::from_str(&env, "at cap");
@@ -148,13 +147,24 @@ fn two_claims_summing_to_cap_succeed() {
         &80,
         &500_000i128,
         &token,
-        &niffyinsure::types::InitiatePolicyOptions { beneficiary: None, deductible: None, expected_nonce: None },
+        &niffyinsure::types::InitiatePolicyOptions {
+            beneficiary: None,
+            deductible: None,
+            expected_nonce: None,
+        },
     );
 
     let details = String::from_str(&env, "first");
     let urls = vec![&env];
     let c1 = client
-        .try_file_claim(&holder, &policy.policy_id, &60_000i128, &details, &urls, &None)
+        .try_file_claim(
+            &holder,
+            &policy.policy_id,
+            &60_000i128,
+            &details,
+            &urls,
+            &None,
+        )
         .unwrap()
         .unwrap();
     approve_and_pay(&env, &client, &v1, &v2, c1);
@@ -162,7 +172,14 @@ fn two_claims_summing_to_cap_succeed() {
 
     let details2 = String::from_str(&env, "second");
     let c2 = client
-        .try_file_claim(&holder, &policy.policy_id, &40_000i128, &details2, &urls, &None)
+        .try_file_claim(
+            &holder,
+            &policy.policy_id,
+            &40_000i128,
+            &details2,
+            &urls,
+            &None,
+        )
         .unwrap()
         .unwrap();
     approve_and_pay(&env, &client, &v1, &v2, c2);
@@ -191,7 +208,11 @@ fn file_claim_over_cap_fails() {
         &80,
         &500_000i128,
         &token,
-        &niffyinsure::types::InitiatePolicyOptions { beneficiary: None, deductible: None, expected_nonce: None },
+        &niffyinsure::types::InitiatePolicyOptions {
+            beneficiary: None,
+            deductible: None,
+            expected_nonce: None,
+        },
     );
 
     let details = String::from_str(&env, "too big");
@@ -234,13 +255,24 @@ fn cap_lowered_after_file_does_not_block_payout() {
         &80,
         &500_000i128,
         &token,
-        &niffyinsure::types::InitiatePolicyOptions { beneficiary: None, deductible: None, expected_nonce: None },
+        &niffyinsure::types::InitiatePolicyOptions {
+            beneficiary: None,
+            deductible: None,
+            expected_nonce: None,
+        },
     );
 
     let details = String::from_str(&env, "in flight");
     let urls = vec![&env];
     let claim_id = client
-        .try_file_claim(&holder, &policy.policy_id, &80_000i128, &details, &urls, &None)
+        .try_file_claim(
+            &holder,
+            &policy.policy_id,
+            &80_000i128,
+            &details,
+            &urls,
+            &None,
+        )
         .unwrap()
         .unwrap();
 
@@ -276,7 +308,11 @@ fn window_rollover_resets_cumulative() {
         &80,
         &500_000i128,
         &token,
-        &niffyinsure::types::InitiatePolicyOptions { beneficiary: None, deductible: None, expected_nonce: None },
+        &niffyinsure::types::InitiatePolicyOptions {
+            beneficiary: None,
+            deductible: None,
+            expected_nonce: None,
+        },
     );
 
     let details = String::from_str(&env, "w1");

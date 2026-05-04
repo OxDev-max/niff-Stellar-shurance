@@ -15,7 +15,10 @@
 
 #![cfg(test)]
 
-use niffyinsure::{admin::{AdminAction, PendingAdminAction}, NiffyInsureClient};
+use niffyinsure::{
+    admin::{AdminAction, PendingAdminAction},
+    NiffyInsureClient,
+};
 use soroban_sdk::{
     testutils::{Address as _, Events, Ledger},
     Address, Env, Symbol,
@@ -85,7 +88,7 @@ fn non_admin_cannot_propose() {
         invoke: &soroban_sdk::testutils::MockAuthInvoke {
             contract: &cid,
             fn_name: "propose_admin",
-            args: soroban_sdk::vec![&env2],  // propose_admin args not validated in mock
+            args: soroban_sdk::vec![&env2], // propose_admin args not validated in mock
             sub_invokes: &[],
         },
     }]);
@@ -233,13 +236,19 @@ fn two_step_action_confirmation_succeeds() {
 
     // Events must include AdminActionProposed.
     let events = env.events().all();
-    assert!(events.len() > 0, "AdminActionProposed event must be emitted");
+    assert!(
+        events.len() > 0,
+        "AdminActionProposed event must be emitted"
+    );
 
     client.confirm_admin_action(&confirmer);
 
     // AdminActionConfirmed must be present after confirmation.
     let events_after = env.events().all();
-    assert!(events_after.len() > 0, "AdminActionConfirmed event must be emitted");
+    assert!(
+        events_after.len() > 0,
+        "AdminActionConfirmed event must be emitted"
+    );
 
     // Pending action is cleared — a second confirm must revert.
     assert!(client.try_confirm_admin_action(&confirmer).is_err());

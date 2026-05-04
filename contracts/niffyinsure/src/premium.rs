@@ -11,8 +11,7 @@
 //! reproduce the contract result bit-for-bit without a Soroban environment.
 
 use crate::{
-    premium_pure,
-    storage,
+    premium_pure, storage,
     types::{
         AgeBand, CoverageTier, MultiplierKey, MultiplierTable, PremiumMultiplierUpdated,
         PremiumQuoteLineItem, PremiumTableUpdated, RegionTier, RiskInput,
@@ -23,9 +22,9 @@ use soroban_sdk::{Env, Map, String, Vec};
 
 // Re-export pure types and constants so existing callers don't need to change.
 pub use premium_pure::{
-    checked_add, checked_div, checked_mul, checked_mul_ratio, checked_sub,
-    round_to_multiple, PremiumComputation, PremiumStep, Rounding,
-    MAX_MULTIPLIER, MAX_SAFETY_DISCOUNT, MIN_MULTIPLIER, SCALE,
+    checked_add, checked_div, checked_mul, checked_mul_ratio, checked_sub, round_to_multiple,
+    PremiumComputation, PremiumStep, Rounding, MAX_MULTIPLIER, MAX_SAFETY_DISCOUNT, MIN_MULTIPLIER,
+    SCALE,
 };
 
 // ── Env-dependent functions ───────────────────────────────────────────────────
@@ -58,7 +57,10 @@ pub fn default_multiplier_table(env: &Env) -> MultiplierTable {
 pub fn update_multiplier_table(env: &Env, new_table: &MultiplierTable) -> Result<(), Error> {
     validate_multiplier_table(env, new_table)?;
     storage::set_multiplier_table(env, new_table);
-    PremiumTableUpdated { version: new_table.version }.publish(env);
+    PremiumTableUpdated {
+        version: new_table.version,
+    }
+    .publish(env);
     Ok(())
 }
 
@@ -101,7 +103,12 @@ pub fn admin_set_premium_multiplier(
 
     storage::set_multiplier_table(env, &table);
 
-    PremiumMultiplierUpdated { key, old_value, new_value: value }.publish(env);
+    PremiumMultiplierUpdated {
+        key,
+        old_value,
+        new_value: value,
+    }
+    .publish(env);
 
     Ok(())
 }
@@ -129,7 +136,7 @@ fn validate_and_get_old(env: &Env, key: &MultiplierKey, value: i128) -> Result<i
             Ok(table.coverage.get(tier.clone()).unwrap_or(0))
         }
         MultiplierKey::SafetyDiscount => {
-            if value < 0 || value > MAX_SAFETY_DISCOUNT {
+            if !(0..=MAX_SAFETY_DISCOUNT).contains(&value) {
                 return Err(Error::SafetyDiscountOutOfBounds);
             }
             Ok(table.safety_discount)

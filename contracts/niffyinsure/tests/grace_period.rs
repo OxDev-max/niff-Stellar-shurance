@@ -12,7 +12,10 @@
 #![cfg(test)]
 
 use niffyinsure::{
-    types::{AgeBand, CoverageTier, DEFAULT_GRACE_PERIOD_LEDGERS, MAX_GRACE_PERIOD_LEDGERS, MIN_GRACE_PERIOD_LEDGERS},
+    types::{
+        AgeBand, CoverageTier, DEFAULT_GRACE_PERIOD_LEDGERS, MAX_GRACE_PERIOD_LEDGERS,
+        MIN_GRACE_PERIOD_LEDGERS,
+    },
     NiffyInsureClient,
 };
 use soroban_sdk::{
@@ -61,7 +64,10 @@ fn renew_direct(client: &NiffyInsureClient, holder: &Address) {
 #[test]
 fn default_grace_period_is_one_day() {
     let (_env, client, _, _) = setup();
-    assert_eq!(client.get_grace_period_ledgers(), DEFAULT_GRACE_PERIOD_LEDGERS);
+    assert_eq!(
+        client.get_grace_period_ledgers(),
+        DEFAULT_GRACE_PERIOD_LEDGERS
+    );
 }
 
 #[test]
@@ -100,13 +106,17 @@ fn set_grace_period_above_max_reverts() {
 #[test]
 fn set_grace_period_at_min_succeeds() {
     let (_env, client, _, _) = setup();
-    assert!(client.try_set_grace_period_ledgers(&MIN_GRACE_PERIOD_LEDGERS).is_ok());
+    assert!(client
+        .try_set_grace_period_ledgers(&MIN_GRACE_PERIOD_LEDGERS)
+        .is_ok());
 }
 
 #[test]
 fn set_grace_period_at_max_succeeds() {
     let (_env, client, _, _) = setup();
-    assert!(client.try_set_grace_period_ledgers(&MAX_GRACE_PERIOD_LEDGERS).is_ok());
+    assert!(client
+        .try_set_grace_period_ledgers(&MAX_GRACE_PERIOD_LEDGERS)
+        .is_ok());
 }
 
 // ── renewal window boundary tests ────────────────────────────────────────────

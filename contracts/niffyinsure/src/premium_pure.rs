@@ -79,11 +79,31 @@ pub fn compute_premium(
         total_premium: final_premium,
         config_version: table.version,
         steps: [
-            PremiumStep { component: "region",           factor: region_m,   premium: after_region   },
-            PremiumStep { component: "age_band",         factor: age_m,      premium: after_age      },
-            PremiumStep { component: "coverage",         factor: coverage_m, premium: after_coverage  },
-            PremiumStep { component: "safety_multiplier",factor: safety_m,   premium: after_safety   },
-            PremiumStep { component: "final_rounding",   factor: 1,          premium: final_premium  },
+            PremiumStep {
+                component: "region",
+                factor: region_m,
+                premium: after_region,
+            },
+            PremiumStep {
+                component: "age_band",
+                factor: age_m,
+                premium: after_age,
+            },
+            PremiumStep {
+                component: "coverage",
+                factor: coverage_m,
+                premium: after_coverage,
+            },
+            PremiumStep {
+                component: "safety_multiplier",
+                factor: safety_m,
+                premium: after_safety,
+            },
+            PremiumStep {
+                component: "final_rounding",
+                factor: 1,
+                premium: final_premium,
+            },
         ],
     })
 }
@@ -91,15 +111,24 @@ pub fn compute_premium(
 // ── Multiplier helpers ────────────────────────────────────────────────────────
 
 pub fn region_multiplier(table: &MultiplierTable, tier: &RegionTier) -> Result<i128, Error> {
-    table.region.get(tier.clone()).ok_or(Error::MissingRegionMultiplier)
+    table
+        .region
+        .get(tier.clone())
+        .ok_or(Error::MissingRegionMultiplier)
 }
 
 pub fn age_multiplier(table: &MultiplierTable, band: &AgeBand) -> Result<i128, Error> {
-    table.age.get(band.clone()).ok_or(Error::MissingAgeMultiplier)
+    table
+        .age
+        .get(band.clone())
+        .ok_or(Error::MissingAgeMultiplier)
 }
 
 pub fn coverage_multiplier(table: &MultiplierTable, level: &CoverageTier) -> Result<i128, Error> {
-    table.coverage.get(level.clone()).ok_or(Error::MissingCoverageMultiplier)
+    table
+        .coverage
+        .get(level.clone())
+        .ok_or(Error::MissingCoverageMultiplier)
 }
 
 /// Safety multiplier: `SCALE - floor(score * max_discount / 100)`.
@@ -195,9 +224,18 @@ mod tests {
 
     #[test]
     fn checked_mul_ratio_rejects_negative() {
-        assert_eq!(checked_mul_ratio(-1, 1, 1, Rounding::Floor), Err(Error::NegativePremiumNotSupported));
-        assert_eq!(checked_mul_ratio(1, -1, 1, Rounding::Floor), Err(Error::NegativePremiumNotSupported));
-        assert_eq!(checked_mul_ratio(1, 1, -1, Rounding::Floor), Err(Error::NegativePremiumNotSupported));
+        assert_eq!(
+            checked_mul_ratio(-1, 1, 1, Rounding::Floor),
+            Err(Error::NegativePremiumNotSupported)
+        );
+        assert_eq!(
+            checked_mul_ratio(1, -1, 1, Rounding::Floor),
+            Err(Error::NegativePremiumNotSupported)
+        );
+        assert_eq!(
+            checked_mul_ratio(1, 1, -1, Rounding::Floor),
+            Err(Error::NegativePremiumNotSupported)
+        );
     }
 
     #[test]
@@ -219,7 +257,10 @@ mod tests {
 
     #[test]
     fn round_to_multiple_zero_multiple_errors() {
-        assert_eq!(round_to_multiple(5, 0, Rounding::Floor), Err(Error::DivideByZero));
+        assert_eq!(
+            round_to_multiple(5, 0, Rounding::Floor),
+            Err(Error::DivideByZero)
+        );
     }
 
     // ── Safety multiplier ─────────────────────────────────────────────────────
@@ -262,7 +303,13 @@ mod tests {
         coverage.set(CoverageTier::Standard, 10_000i128);
         coverage.set(CoverageTier::Premium, 13_000i128);
 
-        MultiplierTable { region, age, coverage, safety_discount: 2_000, version: 1 }
+        MultiplierTable {
+            region,
+            age,
+            coverage,
+            safety_discount: 2_000,
+            version: 1,
+        }
     }
 
     #[test]
@@ -274,7 +321,10 @@ mod tests {
             coverage: CoverageTier::Standard,
             safety_score: 0,
         };
-        assert_eq!(compute_premium(&input, 0, &table), Err(Error::InvalidBaseAmount));
+        assert_eq!(
+            compute_premium(&input, 0, &table),
+            Err(Error::InvalidBaseAmount)
+        );
     }
 
     #[test]
@@ -308,9 +358,16 @@ mod tests {
             coverage: CoverageTier::Premium,
             safety_score: 0,
         };
-        let low = compute_premium(&low_risk, 10_000, &table).unwrap().total_premium;
-        let high = compute_premium(&high_risk, 10_000, &table).unwrap().total_premium;
-        assert!(high > low, "high risk should cost more: high={high}, low={low}");
+        let low = compute_premium(&low_risk, 10_000, &table)
+            .unwrap()
+            .total_premium;
+        let high = compute_premium(&high_risk, 10_000, &table)
+            .unwrap()
+            .total_premium;
+        assert!(
+            high > low,
+            "high risk should cost more: high={high}, low={low}"
+        );
     }
 
     #[test]
@@ -350,13 +407,22 @@ mod tests {
         coverage.set(CoverageTier::Standard, 10_000i128);
         coverage.set(CoverageTier::Premium, 13_000i128);
 
-        let table = MultiplierTable { region, age, coverage, safety_discount: 2_000, version: 1 };
+        let table = MultiplierTable {
+            region,
+            age,
+            coverage,
+            safety_discount: 2_000,
+            version: 1,
+        };
         let input = RiskInput {
             region: RegionTier::Low,
             age_band: AgeBand::Adult,
             coverage: CoverageTier::Standard,
             safety_score: 0,
         };
-        assert_eq!(compute_premium(&input, 10_000, &table), Err(Error::MissingRegionMultiplier));
+        assert_eq!(
+            compute_premium(&input, 10_000, &table),
+            Err(Error::MissingRegionMultiplier)
+        );
     }
 }

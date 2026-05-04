@@ -86,10 +86,7 @@ fn process_expired_reverts_before_end_ledger() {
     env.ledger().with_mut(|l| {
         l.sequence_number = 400;
     });
-    assert_try_result_contains(
-        client.try_process_expired(&holder, &1u32),
-        "NotYetExpired",
-    );
+    assert_try_result_contains(client.try_process_expired(&holder, &1u32), "NotYetExpired");
 }
 
 #[test]
@@ -137,12 +134,7 @@ fn renew_when_expired_records_notice_once() {
     let holder = Address::generate(&env);
     client.test_seed_policy(&holder, &1u32, &1_000_000i128, &400u32);
     token::StellarAssetClient::new(&env, &token).mint(&holder, &100_000_000i128);
-    token::Client::new(&env, &token).approve(
-        &holder,
-        &client.address,
-        &100_000_000i128,
-        &(900u32),
-    );
+    token::Client::new(&env, &token).approve(&holder, &client.address, &100_000_000i128, &(900u32));
 
     env.ledger().with_mut(|l| {
         l.sequence_number = 400;
@@ -268,7 +260,11 @@ fn initiate_then_process_expired_after_natural_duration() {
         &CoverageType::Standard,
         &80u32,
         &1_000_000i128,
-        &niffyinsure::types::InitiatePolicyOptions { beneficiary: None, deductible: None, expected_nonce: None },
+        &niffyinsure::types::InitiatePolicyOptions {
+            beneficiary: None,
+            deductible: None,
+            expected_nonce: None,
+        },
     );
     let end = policy.end_ledger;
 

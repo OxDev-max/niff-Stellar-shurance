@@ -270,7 +270,9 @@ fn undeployed_calculator_falls_back_to_local_engine() {
 /// initiate_policy uses the cross-contract calculator when configured.
 #[test]
 fn initiate_policy_uses_cross_contract_calculator() {
-    use niffyinsure::types::{AgeBand, CoverageTier, InitiatePolicyOptions, PolicyType, RegionTier};
+    use niffyinsure::types::{
+        AgeBand, CoverageTier, InitiatePolicyOptions, PolicyType, RegionTier,
+    };
     use soroban_sdk::token;
 
     let env = Env::default();
@@ -281,13 +283,15 @@ fn initiate_policy_uses_cross_contract_calculator() {
     // Set up token balance and approval for premium payment
     let holder = Address::generate(&env);
     let issuer = Address::generate(&env);
-    let stellar_token = env.register_stellar_asset_contract_v2(issuer.clone()).address();
-    
+    let stellar_token = env
+        .register_stellar_asset_contract_v2(issuer.clone())
+        .address();
+
     // Re-initialize with stellar token for proper token operations
     let new_contract_id = env.register(niffyinsure::NiffyInsure, ());
     let new_client = NiffyInsureClient::new(&env, &new_contract_id);
     new_client.initialize(&admin, &stellar_token);
-    
+
     // Mint tokens and approve
     token::StellarAssetClient::new(&env, &stellar_token).mint(&holder, &100_000_000);
     token::Client::new(&env, &stellar_token).approve(
@@ -330,19 +334,23 @@ fn initiate_policy_uses_cross_contract_calculator() {
 /// to local engine gracefully.
 #[test]
 fn initiate_policy_fallback_when_calculator_not_deployed() {
-    use niffyinsure::types::{AgeBand, CoverageTier, InitiatePolicyOptions, PolicyType, RegionTier};
+    use niffyinsure::types::{
+        AgeBand, CoverageTier, InitiatePolicyOptions, PolicyType, RegionTier,
+    };
     use soroban_sdk::token;
 
     let env = Env::default();
     env.mock_all_auths();
     let admin = Address::generate(&env);
     let issuer = Address::generate(&env);
-    let stellar_token = env.register_stellar_asset_contract_v2(issuer.clone()).address();
-    
+    let stellar_token = env
+        .register_stellar_asset_contract_v2(issuer.clone())
+        .address();
+
     let contract_id = env.register(niffyinsure::NiffyInsure, ());
     let client = NiffyInsureClient::new(&env, &contract_id);
     client.initialize(&admin, &stellar_token);
-    
+
     let holder = Address::generate(&env);
     token::StellarAssetClient::new(&env, &stellar_token).mint(&holder, &100_000_000);
     token::Client::new(&env, &stellar_token).approve(

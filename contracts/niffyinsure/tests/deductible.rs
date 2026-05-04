@@ -1,9 +1,7 @@
 //! Deductible: bind-time validation, payout net = gross − deductible, events.
 
 use niffyinsure::{
-    types::{
-        AgeBand, ClaimStatus, CoverageTier, PolicyType, RegionTier, VoteOption,
-    },
+    types::{AgeBand, ClaimStatus, CoverageTier, PolicyType, RegionTier, VoteOption},
     validate::Error as ValidateError,
     NiffyInsureClient, PolicyError,
 };
@@ -73,7 +71,11 @@ fn approve_claim_flow(
         &80,
         &1_000_000,
         token,
-        &niffyinsure::types::InitiatePolicyOptions { beneficiary: None, deductible: deductible, expected_nonce: None },
+        &niffyinsure::types::InitiatePolicyOptions {
+            beneficiary: None,
+            deductible: deductible,
+            expected_nonce: None,
+        },
     );
 
     let details = String::from_str(env, "deductible test");
@@ -138,10 +140,11 @@ fn initiate_rejects_deductible_above_coverage() {
         &80,
         &100_000,
         &token,
-        &niffyinsure::types::InitiatePolicyOptions { beneficiary: None, deductible: Some(100_001i128), expected_nonce: None },
+        &niffyinsure::types::InitiatePolicyOptions {
+            beneficiary: None,
+            deductible: Some(100_001i128),
+            expected_nonce: None,
+        },
     );
-    assert!(matches!(
-        r,
-        Err(Ok(PolicyError::InvalidDeductible))
-    ));
+    assert!(matches!(r, Err(Ok(PolicyError::InvalidDeductible))));
 }

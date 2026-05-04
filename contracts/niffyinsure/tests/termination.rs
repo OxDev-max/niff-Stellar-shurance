@@ -205,7 +205,10 @@ fn double_terminate_fails() {
 // the admin runbook for full context.
 
 use niffyinsure::types::{ClaimStatus, VoteOption};
-use soroban_sdk::{testutils::{Events, Ledger}, String as SorobanString};
+use soroban_sdk::{
+    testutils::{Events, Ledger},
+    String as SorobanString,
+};
 
 fn seed_and_file_claim<'a>(
     env: &Env,
@@ -253,7 +256,10 @@ fn termination_with_allow_open_claims_vote_still_completes() {
         .is_ok());
 
     let policy = client.get_policy(&holder, &1u32).unwrap();
-    assert!(!policy.is_active, "policy must be inactive after admin termination");
+    assert!(
+        !policy.is_active,
+        "policy must be inactive after admin termination"
+    );
 
     // Vote still completes on the in-flight claim.
     client.vote_on_claim(&voter_a, &cid, &VoteOption::Approve);

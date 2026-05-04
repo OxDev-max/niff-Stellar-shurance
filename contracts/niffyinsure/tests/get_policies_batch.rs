@@ -1,7 +1,7 @@
 #![cfg(test)]
 
-use niffyinsure::{validate::Error as ValidateError, NiffyInsureClient};
 use niffyinsure::types::{PolicyLookupKey, POLICY_BATCH_GET_MAX};
+use niffyinsure::{validate::Error as ValidateError, NiffyInsureClient};
 use soroban_sdk::{testutils::Address as _, Address, Env, Vec};
 
 fn setup() -> (Env, NiffyInsureClient<'static>, Address, Address) {

@@ -64,7 +64,11 @@ fn initiate(
         &10u32,
         &1_000_000_000i128,
         token_addr,
-        &niffyinsure::types::InitiatePolicyOptions { beneficiary: beneficiary, deductible: None, expected_nonce: None },
+        &niffyinsure::types::InitiatePolicyOptions {
+            beneficiary: beneficiary,
+            deductible: None,
+            expected_nonce: None,
+        },
     )
 }
 
@@ -252,5 +256,9 @@ fn set_beneficiary_can_clear_back_to_none() {
     let before_ben = tok.balance(&beneficiary);
     client.process_claim(&1u64);
     assert_eq!(tok.balance(&holder), before_holder + 4_000_000i128);
-    assert_eq!(tok.balance(&beneficiary), before_ben, "former beneficiary must not receive payout after clear");
+    assert_eq!(
+        tok.balance(&beneficiary),
+        before_ben,
+        "former beneficiary must not receive payout after clear"
+    );
 }

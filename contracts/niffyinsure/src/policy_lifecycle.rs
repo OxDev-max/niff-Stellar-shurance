@@ -143,8 +143,10 @@ pub fn admin_terminate_policy(
 ///
 /// Uses [`TerminationReason::LapsedNonPayment`] and emits [`PolicyExpired`] (distinct from
 /// holder/admin [`PolicyTerminated`]).
+#[allow(dead_code)]
 pub fn process_expired(env: &Env, holder: Address, policy_id: u32) -> Result<(), PolicyError> {
-    let mut policy = storage::get_policy(env, &holder, policy_id).ok_or(PolicyError::PolicyNotFound)?;
+    let mut policy =
+        storage::get_policy(env, &holder, policy_id).ok_or(PolicyError::PolicyNotFound)?;
 
     if !policy.is_active {
         return Ok(());

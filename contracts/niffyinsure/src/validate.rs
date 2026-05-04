@@ -245,7 +245,11 @@ pub fn check_oracle_trigger(
     }
 
     // 2. Ledger freshness
-    if current_ledger > trigger.trigger_ledger.saturating_add(max_trigger_age_ledgers) {
+    if current_ledger
+        > trigger
+            .trigger_ledger
+            .saturating_add(max_trigger_age_ledgers)
+    {
         return Err(OracleError::TriggerLedgerExpired);
     }
 
@@ -271,8 +275,8 @@ pub fn check_oracle_trigger(
     };
 
     // 7. Look up registered public key
-    let pub_key = storage::get_oracle_pub_key(env, &source_addr)
-        .ok_or(OracleError::SourceNotRegistered)?;
+    let pub_key =
+        storage::get_oracle_pub_key(env, &source_addr).ok_or(OracleError::SourceNotRegistered)?;
 
     // 8. Build signed message: policy_id(4) || timestamp(8) || nonce(8) || payload
     let mut msg = Bytes::new(env);
@@ -282,7 +286,8 @@ pub fn check_oracle_trigger(
     msg.append(&trigger.payload);
 
     // 9. Ed25519 signature verification — panics on invalid sig (Soroban convention)
-    env.crypto().ed25519_verify(&pub_key, &msg, &trigger.signature);
+    env.crypto()
+        .ed25519_verify(&pub_key, &msg, &trigger.signature);
 
     // 10. Nonce replay protection (strictly increasing)
     storage::advance_oracle_nonce(env, &source_addr, trigger.nonce)?;

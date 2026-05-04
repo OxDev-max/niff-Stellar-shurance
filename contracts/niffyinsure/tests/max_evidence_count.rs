@@ -81,17 +81,13 @@ fn setter_rejects_value_above_hard_max() {
     let (_env, client, _, _) = setup();
     let result = client.try_admin_set_max_evidence_count(&(MAX_EVIDENCE_COUNT_HARD_MAX + 1));
     assert!(result.is_err());
-    assert!(
-        format!("{:?}", result)
-            .contains("MaxEvidenceCountOutOfBounds")
-    );
+    assert!(format!("{:?}", result).contains("MaxEvidenceCountOutOfBounds"));
 }
 
 #[test]
 fn setter_accepts_hard_max_exactly() {
     let (_env, client, _, _) = setup();
-    client
-        .admin_set_max_evidence_count(&MAX_EVIDENCE_COUNT_HARD_MAX);
+    client.admin_set_max_evidence_count(&MAX_EVIDENCE_COUNT_HARD_MAX);
     assert_eq!(client.get_max_evidence_count(), MAX_EVIDENCE_COUNT_HARD_MAX);
 }
 
@@ -112,7 +108,10 @@ fn non_admin_cannot_set_max_evidence_count() {
         invoke: &soroban_sdk::testutils::MockAuthInvoke {
             contract: &cid,
             fn_name: "admin_set_max_evidence_count",
-            args: vec![&env, soroban_sdk::IntoVal::<Env, soroban_sdk::Val>::into_val(&3u32, &env)],
+            args: vec![
+                &env,
+                soroban_sdk::IntoVal::<Env, soroban_sdk::Val>::into_val(&3u32, &env),
+            ],
             sub_invokes: &[],
         },
     }]);
@@ -197,15 +196,14 @@ fn reducing_limit_does_not_invalidate_existing_claims() {
     client.admin_set_max_evidence_count(&8u32);
     seed_policy(&env, &client, &holder, 1, 1_000_000_000);
     let evidence = make_evidence(&env, 8);
-    let claim_id = client
-        .file_claim(
-            &holder,
-            &1u32,
-            &100_000i128,
-            &String::from_str(&env, "test claim"),
-            &evidence,
-            &None,
-        );
+    let claim_id = client.file_claim(
+        &holder,
+        &1u32,
+        &100_000i128,
+        &String::from_str(&env, "test claim"),
+        &evidence,
+        &None,
+    );
 
     // Admin reduces limit back to 3
     client.admin_set_max_evidence_count(&3u32);

@@ -1,7 +1,4 @@
-#![cfg_attr(
-    not(feature = "governance-token"),
-    allow(dead_code)
-)]
+#![cfg_attr(not(feature = "governance-token"), allow(dead_code))]
 
 //! Reserved namespace for an optional **future governance token** (complement or successor
 //! to tokenless DAO-style voting). This module intentionally contains **no** live
