@@ -71,6 +71,7 @@ fn initiate(
     );
 }
 
+#[allow(dead_code)]
 fn file(
     client: &NiffyInsureClient,
     holder: &Address,
@@ -229,7 +230,7 @@ fn nonce_is_independent_per_holder() {
 
 #[test]
 fn file_claim_wrong_nonce_reverts() {
-    let (env, client, _, token) = setup();
+    let (env, client, _, _token) = setup();
     let holder = Address::generate(&env);
     let voter = Address::generate(&env);
 
@@ -249,7 +250,7 @@ fn file_claim_wrong_nonce_reverts() {
 
 #[test]
 fn file_claim_correct_nonce_increments() {
-    let (env, client, _, token) = setup();
+    let (env, client, _, _token) = setup();
     let holder = Address::generate(&env);
     let voter = Address::generate(&env);
 

@@ -150,7 +150,22 @@ mod default_build_tests {
 #[cfg(feature = "experimental")]
 mod experimental_build_tests {
     use super::*;
-    use soroban_sdk::testutils::ed25519::Sign;
+    use ed25519_dalek::Signer;
+
+    fn generate_keypair() -> ed25519_dalek::SigningKey {
+        let mut rng = rand::rngs::OsRng;
+        ed25519_dalek::SigningKey::generate(&mut rng)
+    }
+
+    fn sign_msg(keypair: &ed25519_dalek::SigningKey, env: &Env, msg: &Bytes) -> BytesN<64> {
+        let raw: Vec<u8> = msg.iter().collect();
+        let sig = keypair.sign(&raw);
+        BytesN::from_array(env, &sig.to_bytes())
+    }
+
+    fn setup_contract(env: &Env) -> soroban_sdk::Address {
+        env.register(niffyinsure::NiffyInsure, ())
+    }
 
     fn make_trigger(
         env: &Env,
@@ -179,32 +194,41 @@ mod experimental_build_tests {
     fn oracle_disabled_by_default_in_experimental_build() {
         let env = Env::default();
         env.mock_all_auths();
-        assert!(!niffyinsure::storage::is_oracle_enabled(&env));
+        let cid = setup_contract(&env);
+        let result = env.as_contract(&cid, || niffyinsure::storage::is_oracle_enabled(&env));
+        assert!(!result);
     }
 
     #[test]
     fn oracle_can_be_enabled_in_experimental_build() {
         let env = Env::default();
         env.mock_all_auths();
-        niffyinsure::storage::set_oracle_enabled(&env, true);
-        assert!(niffyinsure::storage::is_oracle_enabled(&env));
-        niffyinsure::storage::set_oracle_enabled(&env, false);
-        assert!(!niffyinsure::storage::is_oracle_enabled(&env));
+        let cid = setup_contract(&env);
+        env.as_contract(&cid, || {
+            niffyinsure::storage::set_oracle_enabled(&env, true);
+            assert!(niffyinsure::storage::is_oracle_enabled(&env));
+            niffyinsure::storage::set_oracle_enabled(&env, false);
+            assert!(!niffyinsure::storage::is_oracle_enabled(&env));
+        });
     }
 
     #[test]
     fn trigger_id_generation_in_experimental_build() {
         let env = Env::default();
-        let id1 = niffyinsure::storage::next_trigger_id(&env);
-        assert_eq!(id1, 1);
-        let id2 = niffyinsure::storage::next_trigger_id(&env);
-        assert_eq!(id2, 2);
+        let cid = setup_contract(&env);
+        env.as_contract(&cid, || {
+            let id1 = niffyinsure::storage::next_trigger_id(&env);
+            assert_eq!(id1, 1);
+            let id2 = niffyinsure::storage::next_trigger_id(&env);
+            assert_eq!(id2, 2);
+        });
     }
 
     #[test]
     fn oracle_trigger_storage_in_experimental_build() {
         let env = Env::default();
         env.mock_all_auths();
+        let cid = setup_contract(&env);
         let source_addr = Address::generate(&env);
         let trigger = make_trigger(
             &env,
@@ -213,20 +237,25 @@ mod experimental_build_tests {
             1,
             [0u8; 64],
         );
-        niffyinsure::storage::set_oracle_trigger(&env, 1, &trigger);
-        let retrieved = niffyinsure::storage::get_oracle_trigger(&env, 1).unwrap();
-        assert_eq!(retrieved.policy_id, 42);
-        assert_eq!(retrieved.nonce, 1);
+        env.as_contract(&cid, || {
+            niffyinsure::storage::set_oracle_trigger(&env, 1, &trigger);
+            let retrieved = niffyinsure::storage::get_oracle_trigger(&env, 1).unwrap();
+            assert_eq!(retrieved.policy_id, 42);
+            assert_eq!(retrieved.nonce, 1);
+        });
     }
 
     #[test]
     fn check_oracle_trigger_rejects_disabled_oracle() {
         let env = Env::default();
         env.mock_all_auths();
-        niffyinsure::storage::set_oracle_enabled(&env, false);
+        let cid = setup_contract(&env);
         let source_addr = Address::generate(&env);
         let trigger = make_trigger(&env, OracleSource::Registered(source_addr), 1, 1, [0u8; 64]);
-        let result = niffyinsure::validate::check_oracle_trigger(&env, &trigger, 1000, 100);
+        let result = env.as_contract(&cid, || {
+            niffyinsure::storage::set_oracle_enabled(&env, false);
+            niffyinsure::validate::check_oracle_trigger(&env, &trigger, 1000, 100)
+        });
         assert_eq!(result, Err(OracleError::OracleDisabled));
     }
 
@@ -234,11 +263,13 @@ mod experimental_build_tests {
     fn check_oracle_trigger_rejects_expired_ledger() {
         let env = Env::default();
         env.mock_all_auths();
-        niffyinsure::storage::set_oracle_enabled(&env, true);
+        let cid = setup_contract(&env);
         let source_addr = Address::generate(&env);
         let trigger = make_trigger(&env, OracleSource::Registered(source_addr), 1, 1, [0u8; 64]);
-        // trigger_ledger=1000, max_age=100, current=10000 → expired
-        let result = niffyinsure::validate::check_oracle_trigger(&env, &trigger, 10000, 100);
+        let result = env.as_contract(&cid, || {
+            niffyinsure::storage::set_oracle_enabled(&env, true);
+            niffyinsure::validate::check_oracle_trigger(&env, &trigger, 10000, 100)
+        });
         assert_eq!(result, Err(OracleError::TriggerLedgerExpired));
     }
 
@@ -246,11 +277,13 @@ mod experimental_build_tests {
     fn check_oracle_trigger_rejects_unregistered_source() {
         let env = Env::default();
         env.mock_all_auths();
-        niffyinsure::storage::set_oracle_enabled(&env, true);
+        let cid = setup_contract(&env);
         let source_addr = Address::generate(&env);
-        // No pub key registered for source_addr
         let trigger = make_trigger(&env, OracleSource::Registered(source_addr), 1, 1, [0u8; 64]);
-        let result = niffyinsure::validate::check_oracle_trigger(&env, &trigger, 1000, 17280);
+        let result = env.as_contract(&cid, || {
+            niffyinsure::storage::set_oracle_enabled(&env, true);
+            niffyinsure::validate::check_oracle_trigger(&env, &trigger, 1000, 17280)
+        });
         assert_eq!(result, Err(OracleError::SourceNotRegistered));
     }
 
@@ -258,17 +291,12 @@ mod experimental_build_tests {
     fn check_oracle_trigger_accepts_valid_ed25519_signature() {
         let env = Env::default();
         env.mock_all_auths();
-        niffyinsure::storage::set_oracle_enabled(&env, true);
+        let cid = setup_contract(&env);
 
-        // Generate a keypair using Soroban test utilities
-        let keypair = soroban_sdk::testutils::ed25519::generate(&env);
-        let pub_key: BytesN<32> = keypair.public_key();
+        let keypair = generate_keypair();
+        let pub_key: BytesN<32> = BytesN::from_array(&env, keypair.verifying_key().as_bytes());
         let source_addr = Address::generate(&env);
 
-        // Register the public key
-        niffyinsure::storage::set_oracle_pub_key(&env, &source_addr, &pub_key);
-
-        // Build the message: policy_id(4) || timestamp(8) || nonce(8) || payload
         let policy_id: u32 = 1;
         let timestamp: u64 = 1_000_000;
         let nonce: u64 = 1;
@@ -280,12 +308,12 @@ mod experimental_build_tests {
         msg.extend_from_array(&nonce.to_be_bytes());
         msg.push_back(payload_byte);
 
-        let sig_bytes = keypair.sign(&env, &msg);
+        let sig_bytes = sign_msg(&keypair, &env, &msg);
 
         let trigger = niffyinsure::types::OracleTrigger {
             policy_id,
             event_type: niffyinsure::types::TriggerEventType::WeatherEvent,
-            source: OracleSource::Registered(source_addr),
+            source: OracleSource::Registered(source_addr.clone()),
             payload: {
                 let mut b = Bytes::new(&env);
                 b.push_back(payload_byte);
@@ -297,7 +325,11 @@ mod experimental_build_tests {
             signature: sig_bytes,
         };
 
-        let result = niffyinsure::validate::check_oracle_trigger(&env, &trigger, 1000, 17280);
+        let result = env.as_contract(&cid, || {
+            niffyinsure::storage::set_oracle_enabled(&env, true);
+            niffyinsure::storage::set_oracle_pub_key(&env, &source_addr, &pub_key);
+            niffyinsure::validate::check_oracle_trigger(&env, &trigger, 1000, 17280)
+        });
         assert!(result.is_ok());
     }
 
@@ -305,18 +337,12 @@ mod experimental_build_tests {
     fn check_oracle_trigger_rejects_replayed_nonce() {
         let env = Env::default();
         env.mock_all_auths();
-        niffyinsure::storage::set_oracle_enabled(&env, true);
+        let cid = setup_contract(&env);
 
-        let keypair = soroban_sdk::testutils::ed25519::generate(&env);
-        let pub_key: BytesN<32> = keypair.public_key();
+        let keypair = generate_keypair();
+        let pub_key: BytesN<32> = BytesN::from_array(&env, keypair.verifying_key().as_bytes());
         let source_addr = Address::generate(&env);
-        niffyinsure::storage::set_oracle_pub_key(&env, &source_addr, &pub_key);
 
-        // Advance nonce to 5 manually
-        let key = niffyinsure::storage::DataKey::OracleNonce(source_addr.clone());
-        env.storage().persistent().set(&key, &5u64);
-
-        // Try to submit with nonce=3 (replay)
         let policy_id: u32 = 1;
         let timestamp: u64 = 1_000_000;
         let nonce: u64 = 3;
@@ -325,12 +351,12 @@ mod experimental_build_tests {
         msg.extend_from_array(&timestamp.to_be_bytes());
         msg.extend_from_array(&nonce.to_be_bytes());
         msg.push_back(1u8);
-        let sig = keypair.sign(&env, &msg);
+        let sig = sign_msg(&keypair, &env, &msg);
 
         let trigger = niffyinsure::types::OracleTrigger {
             policy_id,
             event_type: niffyinsure::types::TriggerEventType::WeatherEvent,
-            source: OracleSource::Registered(source_addr),
+            source: OracleSource::Registered(source_addr.clone()),
             payload: {
                 let mut b = Bytes::new(&env);
                 b.push_back(1u8);
@@ -342,7 +368,16 @@ mod experimental_build_tests {
             signature: sig,
         };
 
-        let result = niffyinsure::validate::check_oracle_trigger(&env, &trigger, 1000, 17280);
+        let result = env.as_contract(&cid, || {
+            niffyinsure::storage::set_oracle_enabled(&env, true);
+            niffyinsure::storage::set_oracle_pub_key(&env, &source_addr, &pub_key);
+            // Advance nonce to 5
+            env.storage().persistent().set(
+                &niffyinsure::storage::DataKey::OracleNonce(source_addr.clone()),
+                &5u64,
+            );
+            niffyinsure::validate::check_oracle_trigger(&env, &trigger, 1000, 17280)
+        });
         assert_eq!(result, Err(OracleError::ReplayedNonce));
     }
 

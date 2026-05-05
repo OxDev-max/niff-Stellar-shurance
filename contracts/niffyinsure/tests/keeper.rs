@@ -2,7 +2,6 @@
 
 #![cfg(test)]
 
-use niffyinsure::policy_lifecycle::PolicyError as LifecyclePolicyError;
 use niffyinsure::{
     types::{ClaimStatus, VoteOption, DEFAULT_GRACE_PERIOD_LEDGERS},
     validate::Error,

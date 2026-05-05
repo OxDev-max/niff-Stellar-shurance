@@ -43,7 +43,7 @@ fn make_evidence(env: &Env, count: u32) -> Vec<niffyinsure::types::ClaimEvidence
 }
 
 fn seed_policy(
-    env: &Env,
+    _env: &Env,
     client: &NiffyInsureClient,
     holder: &Address,
     policy_id: u32,

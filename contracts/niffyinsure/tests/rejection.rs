@@ -255,7 +255,7 @@ fn rejection_clears_open_claim_flag() {
 /// Deadline finalization with plurality-reject triggers rejection side-effects.
 #[test]
 fn deadline_reject_increments_strike_count() {
-    let (env, client, v1, v2, _v3) = three_voter_setup();
+    let (env, client, v1, _v2, _v3) = three_voter_setup();
     // Full turnout required so 1–1 split stays open until `finalize_claim`.
     client.admin_set_quorum_bps(&10_000u32);
     let cid = file(&client, &v1, 100_000, &env);
