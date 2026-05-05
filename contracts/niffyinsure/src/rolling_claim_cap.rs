@@ -78,7 +78,6 @@ fn persist_state(env: &Env, holder: &Address, policy_id: u32, state: &RollingCla
 }
 
 /// Validate before accepting a new claim amount.
-#[allow(dead_code)]
 pub fn check_file_claim(
     env: &Env,
     holder: &Address,
@@ -104,7 +103,6 @@ pub fn check_file_claim(
 }
 
 /// Add a successful payout to the rolling accumulator (no cap check — in-flight safety).
-#[allow(dead_code)]
 pub fn record_claim_paid(env: &Env, holder: &Address, policy_id: u32, amount: i128, now: u32) {
     let mut state = sync_state_to_ledger(env, holder, policy_id, now);
     state.cumulative_paid = state.cumulative_paid.saturating_add(amount);

@@ -99,7 +99,7 @@ fn e2e_full_lifecycle_approve() {
     let ev = common::empty_evidence(&env);
     let claim_id = client.file_claim(
         &holder, &policy_id, &50_000, // claim amount
-        &details, &ev,
+        &details, &ev, &None,
     );
     assert_eq!(claim_id, 1);
 

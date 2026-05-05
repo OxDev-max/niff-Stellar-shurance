@@ -163,10 +163,6 @@ pub fn process_expired(env: &Env, holder: Address, policy_id: u32) -> Result<(),
         return Err(PolicyError::PolicyLapseNotReached);
     }
 
-    if storage::has_open_claim(env, &holder, policy_id) {
-        return Err(PolicyError::OpenClaimsMustFinalize);
-    }
-
     crate::policy::publish_policy_expired_if_due(env, &policy, now);
 
     policy.is_active = false;

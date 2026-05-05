@@ -42,16 +42,11 @@ fn seed(client: &NiffyInsureClient, holder: &Address, end_ledger: u32) {
 }
 
 fn try_renew(client: &NiffyInsureClient, holder: &Address) -> bool {
-    client
-        .try_renew_policy(
-            holder,
-            &1u32,
-            &AgeBand::Adult,
-            &CoverageTier::Basic,
-            &50u32,
-            &1_000_000i128,
-        )
-        .is_ok()
+    use niffyinsure::types::RenewPolicyOutcome;
+    matches!(
+        client.try_renew_policy(holder, &1u32, &AgeBand::Adult, &CoverageTier::Basic, &50u32),
+        Ok(Ok(RenewPolicyOutcome::Renewed(_)))
+    )
 }
 
 /// Directly advance the policy end_ledger (no token transfer) to test window logic.
@@ -85,7 +80,7 @@ fn set_grace_period_emits_event_with_old_and_new() {
     let new_grace = MIN_GRACE_PERIOD_LEDGERS + 500;
     client.set_grace_period_ledgers(&new_grace);
     // Event was emitted (non-empty events list)
-    assert!(!env.events().all().len() == 0);
+    assert!(!env.events().all().events().is_empty());
     let _ = old; // old value captured for documentation
 }
 

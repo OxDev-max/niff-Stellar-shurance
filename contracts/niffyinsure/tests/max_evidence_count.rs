@@ -13,13 +13,14 @@
 
 use niffyinsure::{storage::MAX_EVIDENCE_COUNT_HARD_MAX, NiffyInsureClient};
 use soroban_sdk::{
-    testutils::{Address as _, Events},
+    testutils::{Address as _, Events, Ledger},
     vec, Address, BytesN, Env, String, Vec,
 };
 
 fn setup() -> (Env, NiffyInsureClient<'static>, Address, Address) {
     let env = Env::default();
     env.mock_all_auths();
+    env.ledger().with_mut(|l| l.sequence_number = 100);
     let cid = env.register(niffyinsure::NiffyInsure, ());
     let client = NiffyInsureClient::new(&env, &cid);
     let admin = Address::generate(&env);
@@ -73,7 +74,7 @@ fn admin_can_set_max_evidence_count() {
 fn setter_emits_max_evidence_count_updated_event() {
     let (env, client, _, _) = setup();
     client.admin_set_max_evidence_count(&8u32);
-    assert!(env.events().all().len() > 0);
+    assert!(env.events().all().events().len() > 0);
 }
 
 #[test]

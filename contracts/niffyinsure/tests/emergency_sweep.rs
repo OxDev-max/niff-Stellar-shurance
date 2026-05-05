@@ -319,7 +319,7 @@ fn sweep_emits_comprehensive_audit_event() {
     // Just verify that events were emitted (detailed event structure testing would require
     // parsing the event data which is complex in Soroban tests)
     assert!(
-        !events.is_empty(),
+        !events.events().is_empty(),
         "Expected at least one event to be emitted"
     );
 }

@@ -98,24 +98,19 @@ fn approve_path_emits_no_rejection_events() {
 
     // Verify no rejection-related events in the event log.
     let all_events = env.events().all();
-    for (_, topics, _) in all_events.iter() {
-        // Topics are encoded as a Vec<Val>; we can inspect by converting to
-        // debug string. ClaimRejected / StrikeIncremented / PolicyDeactivated
-        // all contain their discriminant keyword in the topic.
-        let topic_debug = soroban_sdk::testutils::arbitrary::std::format!("{:?}", topics);
-        assert!(
-            !topic_debug.contains("claim_rejected"),
-            "approve path must not emit claim_rejected"
-        );
-        assert!(
-            !topic_debug.contains("strike_incremented"),
-            "approve path must not emit strike_incremented"
-        );
-        assert!(
-            !topic_debug.contains("policy_deactivated"),
-            "approve path must not emit policy_deactivated"
-        );
-    }
+    let events_debug = soroban_sdk::testutils::arbitrary::std::format!("{:?}", all_events);
+    assert!(
+        !events_debug.contains("claim_rejected"),
+        "approve path must not emit claim_rejected"
+    );
+    assert!(
+        !events_debug.contains("strike_incremented"),
+        "approve path must not emit strike_incremented"
+    );
+    assert!(
+        !events_debug.contains("policy_deactivated"),
+        "approve path must not emit policy_deactivated"
+    );
 }
 
 /// After approval, strike_count stays at 0.
@@ -165,13 +160,13 @@ fn rejection_increments_strike_count() {
 #[test]
 fn rejection_emits_events() {
     let (env, client, v1, v2, _v3) = three_voter_setup();
-    let before_count = env.events().all().len();
+    let before_count = env.events().all().events().len();
 
     let cid = file(&client, &v1, 100_000, &env);
     client.vote_on_claim(&v1, &cid, &VoteOption::Reject);
     client.vote_on_claim(&v2, &cid, &VoteOption::Reject);
 
-    let after_count = env.events().all().len();
+    let after_count = env.events().all().events().len();
     // At minimum: ClaimFiled + VoteLogged×2 + ClaimRejected + StrikeIncremented
     assert!(
         after_count > before_count,
@@ -288,10 +283,8 @@ fn tie_resolves_to_rejected_and_increments_strike() {
     client.admin_set_quorum_bps(&10_000u32);
     let v1 = Address::generate(&env);
     let v2 = Address::generate(&env);
-    let v3 = Address::generate(&env);
     seed(&client, &v1, 1_000_000, 500_000);
     seed(&client, &v2, 1_000_000, 500_000);
-    seed(&client, &v3, 1_000_000, 500_000);
 
     let cid = file(&client, &v1, 100_000, &env);
     client.vote_on_claim(&v1, &cid, &VoteOption::Approve);

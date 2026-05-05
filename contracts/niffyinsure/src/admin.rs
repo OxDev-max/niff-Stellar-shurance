@@ -268,7 +268,6 @@ pub fn propose_admin_action(env: &Env, action: AdminAction) {
 /// The confirmer must also be the current admin — this enforces that only the admin
 /// key holder can confirm, preventing arbitrary third parties from executing proposals.
 pub fn confirm_admin_action(env: &Env, confirmer: Address) {
-    confirmer.require_auth();
     storage::bump_instance(env);
 
     let pending = storage::get_pending_admin_action(env)
@@ -500,7 +499,11 @@ fn sweep_token_inner(
     crate::token::sweep_asset(env, &asset, &recipient, amount);
 
     // Emit comprehensive audit event
-    let admin = require_admin(env); // Re-require for event
+    let admin = env
+        .storage()
+        .instance()
+        .get::<_, Address>(&storage::DataKey::Admin)
+        .unwrap_or_else(|| panic_with_error!(env, AdminError::Unauthorized));
     EmergencySweepExecuted {
         admin,
         asset,

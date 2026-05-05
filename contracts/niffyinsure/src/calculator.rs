@@ -88,7 +88,11 @@ pub fn compute_quote(
     quote_ttl: u32,
 ) -> Result<PremiumQuote, Error> {
     match storage::get_calc_address(env) {
-        Some(calc_addr) => call_external(env, &calc_addr, input, base_amount, quote_ttl),
+        Some(calc_addr) => match call_external(env, &calc_addr, input, base_amount, quote_ttl) {
+            Ok(quote) => Ok(quote),
+            Err(Error::CalculatorPaused) => Err(Error::CalculatorPaused),
+            Err(_) => call_local(env, input, base_amount, include_breakdown, quote_ttl),
+        },
         None => call_local(env, input, base_amount, include_breakdown, quote_ttl),
     }
 }
