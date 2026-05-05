@@ -282,5 +282,5 @@ fn claim_filed_event_is_emitted() {
     let holder = Address::generate(&env);
     seed(&client, &holder, 1_000_000, 10_000);
     file(&client, &holder, 100_000, &env);
-    assert!(!env.events().all().len() == 0);
+    assert!(!env.events().all().events().len() == 0);
 }
