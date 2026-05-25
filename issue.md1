@@ -1,0 +1,2039 @@
+# niffyInsure — 125 New Issues
+
+---
+
+## Contract — Oracle price feed integration: on-chain asset price validation before payout
+
+### Description
+
+Approved claim payouts denominated in volatile assets may be worth far more or less than intended at settlement time. Integrating an on-chain oracle price feed allows the contract to validate that the payout asset's current price is within an acceptable band before executing the transfer, protecting the treasury from manipulation during price spikes.
+
+### Tasks
+
+- Define an `OracleConfig` struct storing oracle contract ID, accepted asset pair, and max staleness ledgers.
+- Admin setter for oracle config with authentication and `OracleConfigUpdated` event.
+- Before payout, call oracle to fetch latest price; revert if price is stale or outside configured band.
+- Add tests for stale price rejection, out-of-band rejection, and successful payout within band.
+
+### Additional Requirements
+
+- Oracle integration must be behind a feature flag; default off for MVP.
+- Document fallback behavior when oracle is unavailable.
+
+### Acceptance Criteria
+
+- Payouts with stale oracle data revert with a clear error in tests.
+- Feature flag disables oracle check entirely when off.
+- Oracle config changes are authenticated and emit events.
+
+---
+
+## Contract — Partial claim payout: installment disbursement for large claims
+
+### Description
+
+Large approved claims paid in a single transaction may exceed treasury liquidity at a given moment. Supporting partial payouts—where an approved claim is disbursed in configurable installments—allows the protocol to honor obligations over time without insolvency. Each installment must be tracked on-chain and the claim must not be marked `Paid` until the full amount is disbursed.
+
+### Tasks
+
+- Add `paid_amount: i128` and `installment_count: u32` fields to claim storage.
+- Implement `disburse_installment(claim_id, amount)` admin entrypoint transferring partial amounts.
+- Mark claim `Paid` only when `paid_amount >= amount`; emit `InstallmentDisbursed` and `ClaimFullyPaid` events.
+- Add tests for single full payout, two-installment payout, and over-disbursement revert.
+
+### Additional Requirements
+
+- Installment amounts must be positive and not exceed the remaining unpaid balance.
+- Document the expected disbursement cadence in the sweep runbook.
+
+### Acceptance Criteria
+
+- Claim status transitions to `Paid` only after full disbursement in tests.
+- Over-disbursement attempts revert with a clear error.
+- Indexer can display paid vs outstanding amounts from event data.
+
+---
+
+## Contract — Policy transfer: holder-to-holder ownership reassignment
+
+### Description
+
+Policyholders may need to transfer coverage to another address—for example, when selling an insured asset. A `transfer_policy` entrypoint authenticated by the current holder reassigns ownership while preserving all coverage terms. The new holder inherits all rights including claim filing and renewal, and the transfer is recorded as an on-chain event.
+
+### Tasks
+
+- Implement `transfer_policy(policy_id, new_holder: Address)` authenticated by current holder.
+- Update `holder` field in policy storage; emit `PolicyTransferred` with old and new holder addresses.
+- Validate that the new holder is not the zero address and is not the same as the current holder.
+- Add tests for successful transfer, unauthorized transfer, and self-transfer revert.
+
+### Additional Requirements
+
+- Open claims at transfer time remain associated with the original filer, not the new holder.
+- Document whether transferred policies reset the renewal window.
+
+### Acceptance Criteria
+
+- Transferred policies are queryable by the new holder address in tests.
+- Unauthorized transfer attempts revert.
+- `PolicyTransferred` event is emitted with correct old and new holder values.
+
+---
+
+## Contract — Claim appeal mechanism: second-round voting after initial rejection
+
+### Description
+
+A single voting round may produce incorrect outcomes due to low participation or coordinated voting. An appeal mechanism allows the original claimant to trigger a second voting round after rejection, with a higher quorum requirement and a shorter deadline. Appeals must be rate-limited per claim to prevent indefinite delays.
+
+### Tasks
+
+- Add `appeal_count: u32` and `appeal_deadline_ledger: u32` fields to claim storage.
+- Implement `appeal_claim(claim_id)` authenticated by claimant; allowed only once per claim after `Rejected` status.
+- Reset vote counts, set new deadline, and require elevated quorum for appeal round.
+- Add tests for successful appeal, double-appeal revert, and appeal after non-rejection revert.
+
+### Additional Requirements
+
+- Appeal quorum must be configurable separately from initial quorum.
+- Emit `ClaimAppealed` event with appeal round number.
+
+### Acceptance Criteria
+
+- Appeal resets vote counts and sets a new deadline in tests.
+- Double-appeal attempts revert with a clear error.
+- Appeal quorum is enforced at finalization of the appeal round.
+
+---
+
+## Contract — Whitelist-gated policy initiation: KYC address registry check
+
+### Description
+
+Regulatory requirements may mandate that only KYC-verified addresses can initiate policies. A whitelist registry stored in instance storage allows the admin to gate `initiate_policy` calls without redeployment. The whitelist check must be bypassable via a feature flag for permissionless deployments.
+
+### Tasks
+
+- Store `whitelist_enabled: bool` and `whitelisted: Map<Address, bool>` in instance storage.
+- Admin entrypoints to add/remove addresses and toggle whitelist enforcement.
+- `initiate_policy` checks whitelist when enabled; reverts with `NotWhitelisted` error if not present.
+- Add tests for whitelisted address success, non-whitelisted revert, and disabled whitelist bypass.
+
+### Additional Requirements
+
+- Batch add/remove entrypoints for operational efficiency.
+- Emit `WhitelistUpdated` event on each add/remove operation.
+
+### Acceptance Criteria
+
+- Non-whitelisted addresses cannot initiate policies when whitelist is enabled.
+- Whitelist disabled allows any address to initiate policies.
+- Batch operations are authenticated and emit individual events per address.
+
+---
+
+## Contract — Premium refund on early termination: pro-rata calculation and transfer
+
+### Description
+
+When a policyholder terminates a policy before expiry, they should receive a pro-rata refund of the unused premium. The refund amount must be calculated based on remaining ledgers relative to total policy duration, transferred from the treasury, and recorded as an on-chain event. Termination with open claims must be blocked.
+
+### Tasks
+
+- Implement `terminate_policy(policy_id)` authenticated by holder.
+- Calculate refund as `premium * remaining_ledgers / total_ledgers`; transfer from treasury.
+- Block termination if any claim is in `Processing` status.
+- Emit `PolicyTerminated` with refund amount; add tests for mid-term, near-expiry, and blocked termination.
+
+### Additional Requirements
+
+- Minimum refund threshold: do not transfer dust amounts below a configurable minimum.
+- Document rounding behavior for the pro-rata calculation.
+
+### Acceptance Criteria
+
+- Refund amounts match expected pro-rata values in tests.
+- Termination with open claims reverts with a clear error.
+- Treasury balance decreases by the correct refund amount in tests.
+
+---
+
+## Contract — Claim cooldown period: minimum ledger gap between successive claims per policy
+
+### Description
+
+Without a cooldown, a policyholder could file claims in rapid succession, overwhelming the governance system. A per-policy cooldown enforces a minimum ledger gap between the resolution of one claim and the filing of the next. The cooldown duration must be admin-configurable and must not apply to the first claim on a policy.
+
+### Tasks
+
+- Store `last_claim_resolved_ledger: u32` per policy; update on claim finalization.
+- `file_claim` reverts with `CooldownActive` if `current_ledger - last_resolved < cooldown_ledgers`.
+- Admin setter for `cooldown_ledgers` with bounds and `CooldownUpdated` event.
+- Add tests for first claim (no cooldown), within-cooldown revert, and post-cooldown success.
+
+### Additional Requirements
+
+- Cooldown must not apply to withdrawn claims; only finalized (approved/rejected) claims reset the timer.
+- Document interaction with the rolling claim cap.
+
+### Acceptance Criteria
+
+- Claims filed within the cooldown window revert in tests.
+- First claim on a policy is never blocked by cooldown.
+- Admin cooldown updates do not affect in-progress claims.
+
+---
+
+## Contract — Storage TTL bump on policy activity: prevent expiry of active policy data
+
+### Description
+
+Soroban persistent storage entries have TTLs that must be explicitly extended. Active policies and their associated claims must have their storage TTLs bumped on every mutating operation to prevent data expiry during long-running policies. A keeper entrypoint must allow anyone to bump TTLs for policies approaching expiry.
+
+### Tasks
+
+- Call `env.storage().persistent().extend_ttl(key, threshold, extend_to)` on every policy and claim write.
+- Implement `bump_policy_ttl(policy_id)` permissionless keeper entrypoint.
+- Define TTL constants aligned with Stellar protocol recommendations.
+- Add tests verifying TTL is extended after policy creation and claim filing.
+
+### Additional Requirements
+
+- TTL bump must cover the full expected policy duration plus a safety buffer.
+- Document the keeper cadence required to keep long-duration policies alive.
+
+### Acceptance Criteria
+
+- Policy data is not expired during a simulated long-duration test.
+- Keeper entrypoint successfully extends TTL without other side effects.
+- TTL constants are documented with rationale.
+
+---
+
+## Contract — Cross-contract calculator interface: versioned ABI for premium plugins
+
+### Description
+
+The premium calculator is a separate contract that the main contract calls via cross-contract invocation. The interface between them must be versioned so that calculator upgrades do not silently break the main contract. A version check at initialization and a compatibility assertion before each calculation call ensures ABI alignment.
+
+### Tasks
+
+- Define a `CalculatorInterface` trait with a `version() -> u32` method.
+- Main contract stores expected calculator version; asserts match before each call.
+- Admin entrypoint to update calculator contract ID and expected version atomically.
+- Add tests for version mismatch revert and successful cross-contract call.
+
+### Additional Requirements
+
+- Version mismatch must produce a clear error distinguishable from calculation errors.
+- Document the versioning scheme and upgrade procedure in `CALCULATOR-INTERFACE.md`.
+
+### Acceptance Criteria
+
+- Version mismatch reverts with a distinct error code in tests.
+- Calculator update is atomic: both contract ID and version update together or neither does.
+- Cross-contract call succeeds when versions match.
+
+---
+
+## Contract — Emergency pause with reason code: categorized halt for incident response
+
+### Description
+
+The existing pause toggle lacks context about why the contract was halted. Adding a reason code enum to the pause operation allows incident responders and users to understand the nature of the halt from on-chain data alone, without requiring off-chain communication. Reason codes must be documented and stable across contract versions.
+
+### Tasks
+
+- Define `PauseReason` enum with variants: `SecurityIncident`, `UpgradePending`, `SolvencyRisk`, `Regulatory`.
+- Update `set_paused` to accept a `reason: PauseReason` parameter; store alongside pause state.
+- Emit `PauseToggled` event with reason code on every pause/unpause.
+- Add tests for each reason code and verify reason is readable via a getter.
+
+### Additional Requirements
+
+- Unpause must clear the stored reason code.
+- Document each reason code's expected response procedure in `SECURITY.md`.
+
+### Acceptance Criteria
+
+- Pause reason is readable via simulation without authentication.
+- Each reason code variant is covered by a test.
+- Unpause clears the reason code in storage.
+
+---
+
+## Contract — Claim evidence URL count validation: per-filing minimum and maximum enforcement
+
+### Description
+
+Claims with zero evidence URLs should be rejected at filing time as they provide no basis for governance voting. Similarly, the existing maximum evidence count config must be enforced consistently. This item adds a minimum evidence count (configurable, default 1) alongside the existing maximum, with both validated atomically at `file_claim`.
+
+### Tasks
+
+- Store `min_evidence_count: u32` in instance storage; admin setter with event.
+- `file_claim` reverts with `InsufficientEvidence` if evidence count < min or > max.
+- Add tests for zero evidence, below-min, at-min, at-max, and above-max inputs.
+- Document the default values and rationale.
+
+### Additional Requirements
+
+- Min must always be ≤ max; setter must enforce this invariant.
+- Emit `MinEvidenceCountUpdated` event on changes.
+
+### Acceptance Criteria
+
+- Zero-evidence claims revert in tests.
+- Min/max boundary conditions are all covered by tests.
+- Admin cannot set min > max.
+
+---
+
+## Contract — Governance token voting weight: stake-proportional vote power
+
+### Description
+
+Equal voting weight regardless of stake creates governance capture risks. When the governance token feature is active, vote power should be proportional to the voter's token balance at the snapshot ledger. The weight calculation must be capped to prevent whale dominance and must fall back to equal weight when the governance token feature is disabled.
+
+### Tasks
+
+- When governance token is enabled, read voter balance from snapshot and compute weight as `min(balance, max_weight_cap)`.
+- Store `max_weight_cap: i128` in instance storage; admin setter with event.
+- Fall back to weight = 1 when governance token feature is disabled.
+- Add tests for proportional weight, cap enforcement, and fallback behavior.
+
+### Additional Requirements
+
+- Weight calculation must use the snapshot balance, not the current balance.
+- Document the cap rationale and expected distribution assumptions.
+
+### Acceptance Criteria
+
+- Vote weights match expected proportional values in tests.
+- Cap prevents any single voter from exceeding the documented maximum weight.
+- Fallback to equal weight works correctly when feature is disabled.
+
+---
+
+## Contract — Policy metadata URI: off-chain document link stored on-chain
+
+### Description
+
+Insurance policies typically reference a legal document describing coverage terms. Storing a metadata URI on-chain allows policyholders and auditors to retrieve the governing document for any policy without relying on the backend. The URI must be validated as non-empty at policy creation and must be updatable by the admin for document version changes.
+
+### Tasks
+
+- Add `metadata_uri: String` field to `Policy` struct; validate non-empty at `initiate_policy`.
+- Admin entrypoint `update_policy_metadata_uri(policy_id, new_uri)` with authentication and event.
+- Emit `PolicyMetadataUpdated` event with old and new URI values.
+- Add tests for empty URI rejection, successful storage, and admin update.
+
+### Additional Requirements
+
+- URI format validation: must start with `https://` or `ipfs://`.
+- Document that URI content is not verified on-chain.
+
+### Acceptance Criteria
+
+- Empty URI reverts at policy creation.
+- Invalid URI format reverts with a clear error.
+- Admin URI updates are authenticated and emit events.
+
+---
+
+## Contract — Claim dispute window: post-finalization challenge period
+
+### Description
+
+Finalized claims may have been decided on fraudulent evidence. A short dispute window after finalization allows the admin to flag a claim for review before the payout transfer executes. During the dispute window, the payout is held in escrow within the contract. If no dispute is raised, the payout executes automatically after the window closes.
+
+### Tasks
+
+- Add `dispute_window_ledgers: u32` config and `dispute_deadline_ledger: u32` per claim.
+- After finalization, set dispute deadline; payout executes only after deadline passes.
+- Admin `dispute_claim(claim_id)` freezes payout and sets status to `Disputed`.
+- Add tests for undisputed payout after window, disputed freeze, and window expiry.
+
+### Additional Requirements
+
+- Dispute window must be configurable within absolute bounds.
+- Emit `ClaimDisputed` and `DisputeWindowExpired` events.
+
+### Acceptance Criteria
+
+- Payouts do not execute before the dispute window closes in tests.
+- Admin dispute freezes payout correctly.
+- Undisputed claims auto-execute after the window in tests.
+
+---
+
+## Contract — Batch claim finalization: keeper processes multiple expired deadlines in one call
+
+### Description
+
+Processing claim deadlines one at a time is inefficient for keepers when many claims expire simultaneously. A batch finalization entrypoint allows a keeper to process up to a configurable maximum number of expired claims in a single transaction, reducing keeper operational costs and improving governance liveness.
+
+### Tasks
+
+- Implement `finalize_expired_batch(claim_ids: Vec<u32>)` permissionless entrypoint.
+- Process each claim independently; skip already-finalized claims without reverting.
+- Cap batch size at a documented maximum; revert if exceeded.
+- Emit individual finalization events per claim; emit `BatchFinalized` summary event.
+- Add tests for full batch, partial batch with already-finalized claims, and over-cap revert.
+
+### Additional Requirements
+
+- Batch must not exceed Soroban instruction limits; document the safe maximum.
+- Individual claim errors must not abort the entire batch.
+
+### Acceptance Criteria
+
+- Batch processes all eligible claims and skips ineligible ones in tests.
+- Over-cap input reverts before any processing.
+- Individual finalization events are emitted for each processed claim.
+
+
+## Contract — Reinsurance pool integration: secondary treasury for catastrophic claims
+
+### Description
+
+A single treasury pool may be insufficient for catastrophic loss events affecting many policies simultaneously. A reinsurance pool—a secondary contract or storage bucket—can absorb overflow when the primary treasury is depleted. The main contract must check primary treasury balance before falling back to the reinsurance pool, with clear accounting for each source.
+
+### Tasks
+
+- Add `reinsurance_contract_id: Option<Address>` to instance storage; admin setter with event.
+- Payout logic: attempt primary treasury first; if insufficient, draw from reinsurance pool.
+- Emit `ReinsuranceDrawdown` event when reinsurance is used, with amounts from each source.
+- Add tests for primary-sufficient, primary-insufficient with reinsurance, and no-reinsurance revert.
+
+### Additional Requirements
+
+- Reinsurance pool must implement the same token interface as the primary treasury.
+- Document the accounting implications for solvency monitoring.
+
+### Acceptance Criteria
+
+- Reinsurance drawdown occurs only when primary treasury is insufficient in tests.
+- `ReinsuranceDrawdown` event contains correct amounts from each source.
+- No reinsurance configured causes revert when primary treasury is insufficient.
+
+---
+
+## Contract — Policy type registry: admin-managed coverage product catalog
+
+### Description
+
+Hardcoded policy types limit product flexibility. An admin-managed registry of valid policy types with associated coverage parameters allows new products to be launched without contract redeployment. The registry must enforce that `initiate_policy` only accepts registered types and that deregistered types cannot be used for new policies.
+
+### Tasks
+
+- Store `policy_type_registry: Map<String, PolicyTypeConfig>` in instance storage.
+- Admin entrypoints to register, update, and deregister policy types with events.
+- `initiate_policy` validates that the requested type is in the registry and active.
+- Add tests for valid type, unregistered type revert, and deregistered type revert.
+
+### Additional Requirements
+
+- Deregistering a type must not affect existing policies of that type.
+- `PolicyTypeConfig` must include min/max coverage amounts and allowed assets.
+
+### Acceptance Criteria
+
+- Unregistered policy types revert at initiation in tests.
+- Existing policies of a deregistered type remain valid.
+- Registry changes are authenticated and emit events.
+
+---
+
+## Contract — Claim fraud score: on-chain risk signal from oracle
+
+### Description
+
+An external fraud scoring oracle can provide a risk signal for each claim based on off-chain analysis. Storing this score on-chain and surfacing it to voters gives governance participants additional context. High-risk claims may require elevated quorum. The score must be optional and must not block claim filing if the oracle is unavailable.
+
+### Tasks
+
+- Add `fraud_score: Option<u32>` field to claim storage (0–100 scale).
+- Admin or oracle entrypoint `set_claim_fraud_score(claim_id, score)` with authentication.
+- If score exceeds a configurable threshold, require elevated quorum at finalization.
+- Add tests for score below threshold (normal quorum), above threshold (elevated quorum), and absent score.
+
+### Additional Requirements
+
+- Fraud score must be set before voting closes to affect quorum; late scores are ignored.
+- Emit `FraudScoreSet` event with claim ID and score.
+
+### Acceptance Criteria
+
+- High-score claims require elevated quorum in finalization tests.
+- Missing fraud score uses standard quorum.
+- Score setter is authenticated and emits events.
+
+---
+
+## Contract — Voter eligibility snapshot: block-height-anchored eligibility freeze
+
+### Description
+
+Voter eligibility determined at vote time rather than at claim filing time allows eligibility manipulation by acquiring tokens after a claim is filed. Freezing eligibility at the filing ledger via a snapshot prevents this attack. The snapshot must be taken atomically with claim creation and must be immutable thereafter.
+
+### Tasks
+
+- At `file_claim`, snapshot the current eligible voter set (or token balances) into claim storage.
+- `cast_vote` validates voter eligibility against the snapshot, not current state.
+- Snapshot must be immutable after creation; no admin override.
+- Add tests for voter eligible at filing but not at vote time (should succeed) and vice versa (should fail).
+
+### Additional Requirements
+
+- Snapshot storage must be bounded; document the maximum eligible voter set size.
+- Document the gas cost implications of large voter sets.
+
+### Acceptance Criteria
+
+- Voters eligible at filing but not at vote time can still vote in tests.
+- Voters not eligible at filing cannot vote even if they become eligible later.
+- Snapshot is immutable after claim creation.
+
+---
+
+## Contract — Admin role delegation: temporary operator grants with expiry
+
+### Description
+
+The primary admin key should not be used for routine operations. A delegation mechanism allows the admin to grant temporary operator roles to other addresses with a specific permission set and expiry ledger. Expired delegations are automatically invalid without requiring explicit revocation.
+
+### Tasks
+
+- Store `delegations: Map<Address, DelegationConfig>` with permissions and expiry ledger.
+- Admin entrypoints to grant and revoke delegations with events.
+- Guarded entrypoints check delegation validity (not expired, correct permission) before executing.
+- Add tests for valid delegation, expired delegation revert, wrong permission revert, and revocation.
+
+### Additional Requirements
+
+- Delegations must not grant more permissions than the delegating admin holds.
+- Emit `DelegationGranted` and `DelegationRevoked` events.
+
+### Acceptance Criteria
+
+- Expired delegations are rejected without explicit revocation in tests.
+- Delegated operators can only perform permitted operations.
+- Admin cannot delegate permissions they do not hold.
+
+---
+
+## Contract — Coverage gap detection: revert on policy lapse before renewal
+
+### Description
+
+A policy that has lapsed (expired without renewal) must not accept new claims. Currently, the expiry check may have edge cases where a claim filed in the same ledger as expiry is accepted. This item hardens the expiry check to be strictly less-than and adds a test suite covering the exact expiry ledger boundary.
+
+### Tasks
+
+- Audit all `is_active` and expiry checks; replace `<=` with `<` where appropriate.
+- Add boundary tests: claim at `end_ledger - 1` (success), at `end_ledger` (revert), at `end_ledger + 1` (revert).
+- Add similar boundary tests for renewal eligibility.
+- Document the chosen boundary semantics (inclusive vs exclusive) in code comments.
+
+### Additional Requirements
+
+- Boundary semantics must be consistent across all entrypoints that check policy validity.
+- Document the boundary decision in the renewal runbook.
+
+### Acceptance Criteria
+
+- Claims at the exact expiry ledger revert in tests.
+- Claims one ledger before expiry succeed.
+- Boundary semantics are consistent across all policy validity checks.
+
+---
+
+## Contract — Claim amount denomination validation: asset-specific minimum and maximum
+
+### Description
+
+Claim amounts must be validated against asset-specific minimums and maximums to prevent dust claims and claims exceeding coverage. These bounds must be stored per allowed asset and enforced at `file_claim`. The bounds must be updatable by the admin without affecting in-progress claims.
+
+### Tasks
+
+- Add `min_claim_amount: i128` and `max_claim_amount: i128` to `AllowedAsset` config.
+- `file_claim` validates claim amount against the asset's bounds; reverts with specific errors.
+- Admin entrypoint to update asset bounds with authentication and event.
+- Add tests for below-min, above-max, at-min, and at-max claim amounts.
+
+### Additional Requirements
+
+- Max claim amount must not exceed the policy's coverage amount.
+- Emit `AssetBoundsUpdated` event on changes.
+
+### Acceptance Criteria
+
+- Dust claims below minimum revert with a clear error.
+- Claims exceeding maximum revert with a clear error.
+- Bound updates do not affect in-progress claims.
+
+---
+
+## Contract — Finalization quorum calculation: eligible voter count from snapshot
+
+### Description
+
+Quorum is currently calculated against a hardcoded eligible voter count. The calculation must use the actual eligible voter count from the claim's snapshot to be accurate. This requires the snapshot to store the total eligible count alongside individual voter eligibility, and the finalization logic to read this count.
+
+### Tasks
+
+- Store `eligible_voter_count: u32` in the claim snapshot at filing time.
+- Finalization reads `eligible_voter_count` from snapshot for quorum calculation.
+- Add tests with varying eligible voter counts verifying correct quorum thresholds.
+- Document the source of eligible voter count (governance token holders, whitelist, etc.).
+
+### Additional Requirements
+
+- Zero eligible voters must be handled gracefully (revert or auto-approve per product spec).
+- Document the expected range of eligible voter counts for gas estimation.
+
+### Acceptance Criteria
+
+- Quorum calculations use snapshot eligible count, not a hardcoded value, in tests.
+- Zero eligible voter edge case is handled without silent failures.
+- Finalization outcomes match expected results for boundary quorum inputs.
+
+---
+
+## Contract — Asset allowlist event: emit on add and remove for indexer sync
+
+### Description
+
+The backend indexer needs to maintain a synchronized copy of the allowed asset list to display correct asset metadata. Currently, asset allowlist changes may not emit events that the indexer can reliably detect. This item ensures `AssetAdded` and `AssetRemoved` events are emitted on every allowlist change with sufficient data for the indexer.
+
+### Tasks
+
+- Emit `AssetAdded` event with contract ID, symbol hint, and decimals on allowlist addition.
+- Emit `AssetRemoved` event with contract ID on removal.
+- Ensure events are emitted even when the asset was previously in the same state (idempotent add/remove).
+- Add tests verifying event emission for add, remove, and re-add operations.
+
+### Additional Requirements
+
+- Events must include enough data for the indexer to populate `AllowedAsset` table without additional RPC calls.
+- Document the event schema in `EVENT_DICTIONARY.md`.
+
+### Acceptance Criteria
+
+- Indexer can populate `AllowedAsset` table from events alone in tests.
+- Re-adding an already-allowed asset emits an event without reverting.
+- Event schema matches the `EVENT_DICTIONARY.md` specification.
+
+---
+
+## Contract — Claim payout timeout: auto-reject if treasury cannot pay within window
+
+### Description
+
+An approved claim that cannot be paid due to treasury insolvency should not remain in `Approved` status indefinitely. A configurable payout timeout ledger window after approval triggers an auto-rejection with a distinct `PayoutTimeout` status, allowing the claimant to refile when the treasury is replenished.
+
+### Tasks
+
+- Add `payout_deadline_ledger: u32` to claim storage; set at approval time.
+- Keeper entrypoint `process_payout_timeout(claim_id)` transitions to `PayoutTimeout` if deadline passed and not paid.
+- Emit `PayoutTimedOut` event with claim ID and deadline ledger.
+- Add tests for payout within deadline, timeout after deadline, and premature timeout revert.
+
+### Additional Requirements
+
+- `PayoutTimeout` status must be distinct from `Rejected` in all displays.
+- Document the expected payout timeout window relative to treasury replenishment cadence.
+
+### Acceptance Criteria
+
+- Claims not paid within the timeout window transition to `PayoutTimeout` in tests.
+- Premature timeout keeper calls revert.
+- `PayoutTimedOut` event is emitted with correct data.
+
+---
+
+## Contract — Wasm hash verification: deployment integrity check entrypoint
+
+### Description
+
+After a contract upgrade, operators need to verify that the deployed wasm matches the expected build artifact. A `get_wasm_hash() -> BytesN<32>` entrypoint returning the current contract's wasm hash allows automated deployment verification without requiring external tooling to parse ledger state directly.
+
+### Tasks
+
+- Implement `get_wasm_hash() -> BytesN<32>` using `env.current_contract_address()` and Soroban wasm hash APIs.
+- Add a test asserting the returned hash is non-zero.
+- Wire backend deployment registry to call this after each upgrade and compare against the expected hash.
+- Document the hash format and how to compute the expected hash from a local build.
+
+### Additional Requirements
+
+- Entrypoint must be callable without authentication.
+- Document the relationship between this hash and the `wasm-release.md` artifact hashes.
+
+### Acceptance Criteria
+
+- Returned hash is non-zero and consistent across repeated calls in tests.
+- Backend deployment registry records and compares the hash after upgrades.
+- Hash format is documented with a verification example.
+
+---
+
+## Contract — Per-asset premium table: coverage-amount-to-premium mapping per token
+
+### Description
+
+Different assets have different risk profiles and liquidity characteristics. The premium table must be configurable per allowed asset rather than using a single global table. This allows the protocol to price USDC-denominated policies differently from XLM-denominated ones without separate contract deployments.
+
+### Tasks
+
+- Extend premium table storage to be keyed by `(asset_contract_id, coverage_tier)`.
+- Admin entrypoint to set premium table entries per asset with authentication and events.
+- `quote` and `initiate_policy` use the asset-specific table; fall back to default table if asset-specific entry is absent.
+- Add tests for asset-specific pricing, fallback to default, and missing asset revert.
+
+### Additional Requirements
+
+- Default table must remain functional for backward compatibility.
+- Emit `PremiumTableUpdated` event with asset ID and tier on each change.
+
+### Acceptance Criteria
+
+- Asset-specific premium tables return correct values in tests.
+- Fallback to default table works when no asset-specific entry exists.
+- Missing asset with no default entry reverts with a clear error.
+
+---
+
+## Contract — Claim evidence IPFS CID validation: format check before storage
+
+### Description
+
+Evidence URLs stored on-chain should be valid IPFS CIDs or allowlisted gateway URLs. Storing arbitrary strings wastes storage and creates display issues in the frontend. A format validation step at `file_claim` rejects evidence entries that do not match expected patterns, reducing garbage data in claim storage.
+
+### Tasks
+
+- Implement `validate_evidence_url(url: &str) -> bool` checking for `ipfs://` prefix or allowlisted gateway prefix.
+- Apply validation to each evidence entry at `file_claim`; revert with `InvalidEvidenceUrl` on failure.
+- Admin entrypoint to update the gateway allowlist prefix list.
+- Add tests for valid IPFS CID, valid gateway URL, invalid URL, and empty string.
+
+### Additional Requirements
+
+- Validation must be a prefix check only; full URL parsing is too expensive on-chain.
+- Document the accepted URL formats in the contract comments.
+
+### Acceptance Criteria
+
+- Invalid evidence URLs revert at filing in tests.
+- Valid IPFS and gateway URLs are accepted.
+- Gateway allowlist is updatable by admin without redeployment.
+
+---
+
+## Contract — Claim vote delegation: assign voting rights to another address
+
+### Description
+
+Token holders who cannot actively participate in governance may want to delegate their voting rights to a trusted representative. A delegation registry allows a holder to assign their vote weight to another address for a configurable period. The delegate votes on behalf of the delegator; the delegator cannot vote directly while delegation is active.
+
+### Tasks
+
+- Store `vote_delegations: Map<Address, DelegationEntry>` with delegate address and expiry ledger.
+- `cast_vote` checks if voter has an active delegation; if so, rejects direct vote with `VoteDelegated` error.
+- Delegate's vote weight includes their own weight plus all active delegators' weights.
+- Add tests for delegation, delegated vote, direct vote while delegated revert, and delegation expiry.
+
+### Additional Requirements
+
+- Circular delegations must be detected and rejected.
+- Emit `VoteDelegated` and `VoteDelegationRevoked` events.
+
+### Acceptance Criteria
+
+- Delegated votes carry combined weight in tests.
+- Direct votes while delegation is active revert.
+- Circular delegation attempts revert with a clear error.
+
+---
+
+## Contract — Protocol fee: configurable basis-point fee on premium payments
+
+### Description
+
+The protocol needs a sustainable revenue model. A configurable basis-point fee deducted from each premium payment before it enters the treasury provides protocol revenue without requiring separate fee collection logic. The fee must be sent to a configurable fee recipient address and must be adjustable by the admin within absolute bounds.
+
+### Tasks
+
+- Store `protocol_fee_bps: u32` and `fee_recipient: Address` in instance storage; admin setters with events.
+- Deduct fee from premium at `initiate_policy`; transfer fee to recipient and remainder to treasury.
+- Emit `ProtocolFeeCollected` event with policy ID, fee amount, and recipient.
+- Add tests for zero fee, non-zero fee, max fee, and fee recipient update.
+
+### Additional Requirements
+
+- Maximum fee must be bounded (e.g. 1000 bps = 10%) to prevent admin abuse.
+- Fee calculation must round down to avoid overcharging.
+
+### Acceptance Criteria
+
+- Fee amounts match expected basis-point calculations in tests.
+- Fee recipient receives correct amount in token transfer tests.
+- Admin cannot set fee above the absolute maximum.
+
+
+## Contract — Claim status webhook trigger: on-chain event for off-chain notification
+
+### Description
+
+The backend notification service needs a reliable trigger for claim status changes. While the indexer already processes events, adding explicit `ClaimStatusChanged` events with old and new status values makes the notification trigger unambiguous and reduces the risk of missed transitions during indexer restarts.
+
+### Tasks
+
+- Emit `ClaimStatusChanged` event on every status transition with `claim_id`, `old_status`, and `new_status`.
+- Ensure emission covers all transition paths: filing, voting, finalization, payout, withdrawal.
+- Add tests verifying event emission for each transition type.
+- Update `EVENT_DICTIONARY.md` with the new event schema.
+
+### Additional Requirements
+
+- Event must be emitted even for admin-forced status changes.
+- Document which transitions are possible from each status.
+
+### Acceptance Criteria
+
+- Every status transition emits a `ClaimStatusChanged` event in tests.
+- Event schema matches `EVENT_DICTIONARY.md`.
+- No transition path is missing event emission.
+
+---
+
+## Contract — Policy renewal with coverage upgrade: allow tier change at renewal
+
+### Description
+
+Policyholders renewing a policy may want to upgrade their coverage tier at the same time. The renewal entrypoint must accept an optional new coverage tier and premium amount, validate the upgrade against the premium table, and apply the new terms from the renewal ledger onward. Downgrades must be explicitly allowed or blocked per product spec.
+
+### Tasks
+
+- Extend `renew_policy` to accept optional `new_coverage_tier` and `new_coverage_amount` parameters.
+- Validate new terms against the premium table; charge the difference or new full premium.
+- Emit `PolicyRenewed` event with old and new coverage terms.
+- Add tests for renewal without change, upgrade, and (if blocked) downgrade revert.
+
+### Additional Requirements
+
+- Coverage changes must take effect from the new policy period start, not retroactively.
+- Document whether mid-term upgrades are supported or only at renewal.
+
+### Acceptance Criteria
+
+- Renewal with upgrade applies new terms from the renewal ledger in tests.
+- Premium charged matches the new tier's table entry.
+- `PolicyRenewed` event contains both old and new coverage terms.
+
+---
+
+## Contract — Claim payout asset override: pay in different asset than premium
+
+### Description
+
+Some claim scenarios may warrant payout in a stable asset (e.g. USDC) even when the premium was paid in a volatile asset (e.g. XLM). An admin-configurable payout asset override per policy type allows the protocol to offer stable payouts without requiring policyholders to pay premiums in stablecoins.
+
+### Tasks
+
+- Add `payout_asset_override: Option<Address>` to `PolicyTypeConfig` in the registry.
+- Payout logic uses override asset if set; falls back to premium asset otherwise.
+- Emit `PayoutAssetOverrideApplied` event when override is used.
+- Add tests for override active, override absent (fallback), and override asset not allowlisted revert.
+
+### Additional Requirements
+
+- Override asset must be on the allowlist; admin cannot set an unallowlisted override.
+- Document the oracle price feed requirement when override asset differs from premium asset.
+
+### Acceptance Criteria
+
+- Payouts use the override asset when configured in tests.
+- Unallowlisted override asset reverts at config time.
+- Fallback to premium asset works when no override is set.
+
+---
+
+## Contract — Claim evidence update: allow adding evidence before voting starts
+
+### Description
+
+A claimant may have additional evidence to submit after initial filing but before voting begins. Allowing evidence updates during the pre-vote window improves claim quality and reduces appeals. Once voting starts, evidence must be locked to prevent manipulation of in-progress governance rounds.
+
+### Tasks
+
+- Implement `add_claim_evidence(claim_id, new_urls: Vec<EvidenceEntry>)` authenticated by claimant.
+- Allow only when `status == Processing` and `approve_votes + reject_votes == 0`.
+- Validate new evidence against current `min_evidence_count` and `max_evidence_count` config.
+- Emit `ClaimEvidenceUpdated` event; add tests for pre-vote success, post-vote revert, and cap enforcement.
+
+### Additional Requirements
+
+- Evidence update replaces the entire evidence list, not appends, to avoid unbounded growth.
+- Document the evidence update window in the claims user guide.
+
+### Acceptance Criteria
+
+- Evidence updates succeed before any votes in tests.
+- Updates after first vote revert with a clear error.
+- Updated evidence is reflected in `get_claim` return value.
+
+---
+
+## Contract — Solvency ratio check: block new policies when treasury is undercapitalized
+
+### Description
+
+Issuing new policies when the treasury cannot cover existing approved claims is irresponsible. A solvency ratio check at `initiate_policy` compares the treasury balance against the sum of outstanding approved claim amounts plus the new policy's coverage amount. If the ratio falls below a configurable threshold, new policy issuance is blocked.
+
+### Tasks
+
+- Implement `check_solvency_ratio(new_coverage: i128) -> bool` reading treasury balance and outstanding claims.
+- `initiate_policy` calls solvency check; reverts with `InsufficientSolvency` if ratio is below threshold.
+- Admin setter for `min_solvency_ratio_bps` with bounds and event.
+- Add tests for solvent state (success), insolvent state (revert), and threshold boundary.
+
+### Additional Requirements
+
+- Solvency check must use the same asset as the new policy's premium.
+- Document the performance implications of reading outstanding claim totals on every policy initiation.
+
+### Acceptance Criteria
+
+- Policy initiation reverts when solvency ratio is below threshold in tests.
+- Threshold boundary is correctly enforced.
+- Admin can update the threshold within documented bounds.
+
+---
+
+## Contract — Claim batch query: fetch multiple claims by ID in one simulation
+
+### Description
+
+The claims board dashboard needs to fetch multiple claims efficiently. A batch query entrypoint reduces the number of simulation calls required for initial dashboard load, improving frontend performance. The entrypoint must enforce a hard cap on batch size and return `None` for missing claim IDs.
+
+### Tasks
+
+- Implement `get_claims_batch(ids: Vec<u32>) -> Vec<Option<Claim>>` capped at a documented maximum.
+- Return `None` for missing IDs without reverting.
+- Add tests for full batch, partial hits, empty input, and over-cap revert.
+- Document the cap value and rationale.
+
+### Additional Requirements
+
+- Cap must be enforced before any storage reads.
+- Return type must be consistent with `get_claim` for frontend parsing.
+
+### Acceptance Criteria
+
+- Over-cap requests revert before any storage reads.
+- Mixed present/absent ID batches return correct `None` positions.
+- Backend simulation service uses this for bulk dashboard loads.
+
+---
+
+## Contract — Admin action audit log: on-chain record of privileged operations
+
+### Description
+
+Off-chain audit logs can be tampered with or lost. Recording privileged admin operations as on-chain events creates an immutable audit trail that anyone can verify. Every admin entrypoint must emit an `AdminAction` event with the actor address, action type, and relevant parameters.
+
+### Tasks
+
+- Define `AdminAction` event with `actor`, `action_type: String`, and `params: Map<String, String>`.
+- Emit `AdminAction` from every admin-authenticated entrypoint.
+- Add tests verifying event emission for each admin operation.
+- Document the `action_type` string values in `EVENT_DICTIONARY.md`.
+
+### Additional Requirements
+
+- `params` must not include sensitive values like private keys or raw amounts that could be misleading.
+- Event must be emitted even when the admin operation is a no-op (e.g. setting same value).
+
+### Acceptance Criteria
+
+- Every admin entrypoint emits an `AdminAction` event in tests.
+- Event schema matches `EVENT_DICTIONARY.md`.
+- Non-admin callers cannot emit `AdminAction` events.
+
+---
+
+## Contract — Policy region validation: admin-managed region code registry
+
+### Description
+
+Free-text region fields in policies create inconsistency in premium calculations and reporting. An admin-managed registry of valid region codes enforces a closed set at policy initiation. The registry must support hierarchical regions (e.g. country > state) and must be updatable without redeployment.
+
+### Tasks
+
+- Store `region_registry: Map<String, RegionConfig>` in instance storage with admin management entrypoints.
+- `initiate_policy` validates region against registry; reverts with `InvalidRegion` if not found.
+- `RegionConfig` includes parent region, risk multiplier, and active flag.
+- Add tests for valid region, invalid region revert, deactivated region revert, and registry update.
+
+### Additional Requirements
+
+- Deactivating a region must not affect existing policies in that region.
+- Emit `RegionRegistryUpdated` event on each change.
+
+### Acceptance Criteria
+
+- Invalid region codes revert at policy initiation in tests.
+- Deactivated regions block new policies but not existing ones.
+- Risk multiplier from region config is used in premium calculation.
+
+---
+
+## Contract — Claim vote anonymization: commit-reveal scheme for private voting
+
+### Description
+
+Public voting allows early voters to influence later voters, potentially skewing outcomes. A commit-reveal scheme where voters submit a hash commitment in the voting phase and reveal their vote in a reveal phase prevents this influence while maintaining on-chain verifiability. The reveal phase must be time-bounded.
+
+### Tasks
+
+- Add `commit_phase_end_ledger` and `reveal_phase_end_ledger` to claim storage.
+- `commit_vote(claim_id, commitment: BytesN<32>)` stores commitment during commit phase.
+- `reveal_vote(claim_id, vote, salt: BytesN<32>)` verifies commitment and records vote during reveal phase.
+- Add tests for valid commit-reveal, wrong salt revert, late reveal revert, and double-reveal revert.
+
+### Additional Requirements
+
+- Unrevealed commitments after reveal phase end are treated as abstentions.
+- Document the commitment hash format: `SHA-256(vote || salt)`.
+
+### Acceptance Criteria
+
+- Valid commit-reveal sequences record votes correctly in tests.
+- Wrong salt or late reveal reverts with clear errors.
+- Unrevealed commitments do not affect vote tallies.
+
+---
+
+## Contract — Treasury deposit entrypoint: permissioned capital injection
+
+### Description
+
+The treasury needs a way to receive capital injections from authorized sources (e.g. protocol investors, reinsurance partners) without requiring direct token transfers that bypass accounting. A `deposit_treasury(amount, asset)` entrypoint authenticated by an allowlisted depositor address records the deposit as an on-chain event and updates internal accounting.
+
+### Tasks
+
+- Store `authorized_depositors: Map<Address, bool>` in instance storage; admin management entrypoints.
+- Implement `deposit_treasury(amount: i128, asset: Address)` authenticated by authorized depositor.
+- Transfer tokens from depositor to contract; emit `TreasuryDeposited` event.
+- Add tests for authorized deposit, unauthorized deposit revert, and zero amount revert.
+
+### Additional Requirements
+
+- Depositor authorization must be revocable by admin.
+- Emit `DepositorAuthorized` and `DepositorRevoked` events on registry changes.
+
+### Acceptance Criteria
+
+- Unauthorized depositors cannot call the deposit entrypoint.
+- Authorized deposits transfer tokens and emit events correctly.
+- Zero-amount deposits revert with a clear error.
+
+---
+
+## Contract — Claim payout recipient verification: validate recipient is not contract
+
+### Description
+
+Paying out to a contract address rather than a user wallet may cause the payout to be locked if the recipient contract does not implement a token receive handler. Validating that the payout recipient is not a contract address (or is an explicitly allowlisted contract) prevents accidental fund locking.
+
+### Tasks
+
+- Before payout transfer, check if recipient is a contract address using Soroban address type checks.
+- Allow payout to contracts only if the recipient is on an admin-managed allowlist.
+- Emit `PayoutRecipientWarning` event if recipient is a contract but is allowlisted.
+- Add tests for user address payout, non-allowlisted contract revert, and allowlisted contract success.
+
+### Additional Requirements
+
+- Allowlist must be manageable by admin without redeployment.
+- Document the risk of paying to contract addresses in the security runbook.
+
+### Acceptance Criteria
+
+- Payouts to non-allowlisted contract addresses revert in tests.
+- Allowlisted contract addresses receive payouts successfully.
+- `PayoutRecipientWarning` event is emitted for allowlisted contract payouts.
+
+---
+
+## Contract — Governance proposal: on-chain parameter change voting
+
+### Description
+
+Admin-only parameter changes centralize governance risk. A governance proposal mechanism allows token holders to vote on parameter changes (quorum, voting duration, fee rates) before they take effect. Proposals that reach quorum are automatically applied; rejected proposals are discarded.
+
+### Tasks
+
+- Define `Proposal` struct with parameter key, proposed value, deadline, and vote tallies.
+- `create_proposal(param_key, new_value)` authenticated by any token holder above a minimum stake.
+- `vote_proposal(proposal_id, approve: bool)` for token holders; apply on quorum reached.
+- Add tests for proposal creation, voting, quorum-triggered application, and rejection.
+
+### Additional Requirements
+
+- Only whitelisted parameter keys can be changed via proposals.
+- Emit `ProposalCreated`, `ProposalVoted`, `ProposalApplied`, and `ProposalRejected` events.
+
+### Acceptance Criteria
+
+- Proposals reaching quorum automatically apply the parameter change in tests.
+- Rejected proposals are discarded without applying changes.
+- Non-token-holders cannot create proposals.
+
+
+---
+
+## Backend — GraphQL subscription for vote events: real-time tally updates via WebSocket
+
+### Description
+
+The vote tally on the claim detail page currently requires polling. A GraphQL subscription pushing vote events to connected clients reduces polling load and improves the real-time feel of the governance interface. The subscription must authenticate subscribers and respect per-connection rate limits.
+
+### Tasks
+
+- Implement `voteAdded(claimId: ID!)` GraphQL subscription using the existing `VotePubSubService`.
+- Publish to the subscription channel when the indexer ingests a new vote row.
+- Authenticate subscription connections via wallet JWT in the WebSocket handshake.
+- Add integration tests verifying subscription delivery after vote ingestion.
+- Document max concurrent subscription connections and backpressure behavior.
+
+### Additional Requirements
+
+- Subscriptions must not hold DB connections open between events.
+- Graceful shutdown must drain active subscriptions without data loss.
+
+### Acceptance Criteria
+
+- Vote events are delivered to subscribers within configured max latency in staging.
+- Unauthenticated subscription attempts are rejected.
+- Load test confirms connection count stays within documented limits.
+
+---
+
+## Backend — Claim aggregation caching: Redis-backed pre-computed claim summaries
+
+### Description
+
+The claims board fetches aggregated data (vote counts, quorum progress, deadline estimates) on every page load. Pre-computing and caching these summaries in Redis reduces DB query load and improves response times. The cache must be invalidated when new votes are ingested or claim status changes.
+
+### Tasks
+
+- Implement `ClaimSummaryCache` service computing and storing summaries in Redis with configurable TTL.
+- Invalidate cache entries on vote ingestion and claim status transitions in the indexer worker.
+- Expose cache hit/miss metrics on the `/metrics` endpoint.
+- Add integration tests verifying cache invalidation after vote ingestion.
+- Document the TTL tradeoffs and expected staleness window.
+
+### Additional Requirements
+
+- Cache must not serve summaries for soft-deleted claims.
+- Cache warm-up on startup must not block the indexer from processing new events.
+
+### Acceptance Criteria
+
+- Claims board response time improves measurably with cache enabled in staging.
+- Cache is invalidated within one indexer cycle after a new vote in tests.
+- Metrics distinguish cache hits from misses.
+
+---
+
+## Backend — IPFS content verification: hash comparison on evidence fetch
+
+### Description
+
+The backend IPFS proxy fetches evidence files for preview and verification. Comparing the fetched content hash against the on-chain commitment (stored in the claim's evidence entries) provides tamper detection. Mismatches must be logged as security events and the response must indicate the verification status.
+
+### Tasks
+
+- After fetching IPFS content, compute SHA-256 and compare against the stored on-chain hash.
+- Add `verified: boolean` and `hashMismatch: boolean` fields to the IPFS fetch response DTO.
+- Log hash mismatches as structured security events with claim ID and evidence URL.
+- Add unit tests for hash match, mismatch, and missing on-chain hash cases.
+- Document the verification flow in the IPFS module README.
+
+### Additional Requirements
+
+- Hash mismatch must not block the response; it must be flagged, not suppressed.
+- Never log the full file content in security events.
+
+### Acceptance Criteria
+
+- Hash mismatches are logged and flagged in the response DTO in tests.
+- Correct hashes return `verified: true` in tests.
+- Missing on-chain hash returns `verified: false` without error.
+
+---
+
+## Backend — Policy expiry notification: email and push on approaching expiry
+
+### Description
+
+The renewal reminder job enqueues notification jobs, but the notification service needs concrete email and push notification templates for policy expiry. This item implements the notification templates, integrates with the configured email provider, and adds push notification support via a configurable webhook.
+
+### Tasks
+
+- Implement `PolicyExpiryEmailTemplate` and `PolicyExpiryPushTemplate` in the notification templates module.
+- Integrate with the configured email provider (SendGrid or equivalent) via environment variable.
+- Send push notifications via configurable webhook URL for mobile clients.
+- Add integration tests with mocked email and webhook providers.
+- Document the template variables and how to customize copy.
+
+### Additional Requirements
+
+- Templates must support i18n; use the user's preferred locale from notification preferences.
+- Never include wallet private keys or sensitive contract data in notification content.
+
+### Acceptance Criteria
+
+- Email and push notifications are sent for expiring policies in integration tests.
+- Opted-out users receive no notifications.
+- Template rendering is tested for both English and Spanish locales.
+
+---
+
+## Backend — Admin claim override: force status transition with audit trail
+
+### Description
+
+Compliance or legal requirements may necessitate overriding a claim's status outside the normal governance flow. An admin endpoint to force a claim status transition must require elevated authentication, record a mandatory reason, create an immutable audit log entry, and emit a contract event via the Soroban RPC.
+
+### Tasks
+
+- Implement `POST /admin/claims/:id/override` with `{ newStatus, reason }` body.
+- Require admin JWT with elevated scope; validate `reason` is non-empty.
+- Write to `admin_audit_log` with full payload before executing the override.
+- Attempt to emit an on-chain event via Soroban RPC; log failure but do not block the DB update.
+- Add tests for authorized override, unauthorized revert, and missing reason revert.
+
+### Additional Requirements
+
+- Override must not be possible for claims in terminal states (`Paid`, `Withdrawn`).
+- Document the legal and compliance use cases in the admin role assignment doc.
+
+### Acceptance Criteria
+
+- Authorized overrides update claim status and create audit log entries in tests.
+- Unauthorized callers receive `403`.
+- Terminal state overrides are rejected with a clear error.
+
+---
+
+## Backend — Rate limiting per wallet: sliding window with Redis backend
+
+### Description
+
+The existing global throttler does not distinguish between wallet addresses. A per-wallet sliding window rate limiter using Redis allows tighter limits on claim filing and transaction submission while keeping generous limits for read operations. The limiter must return `Retry-After` headers and must not penalize legitimate high-frequency read users.
+
+### Tasks
+
+- Implement `WalletRateLimitGuard` using Redis sorted sets for sliding window tracking.
+- Apply stricter limits to `POST /claims`, `POST /policies`, and `POST /tx/submit`.
+- Return `429` with `Retry-After` header on limit exceeded.
+- Add integration tests verifying limit enforcement and header presence.
+- Document the limit values and rationale per endpoint.
+
+### Additional Requirements
+
+- Unauthenticated requests fall back to IP-based limiting.
+- Limit configuration must be per-endpoint and adjustable via environment variables.
+
+### Acceptance Criteria
+
+- Wallet-specific limits are enforced independently of global limits in tests.
+- `Retry-After` header is present on all `429` responses.
+- Read endpoints are not affected by write endpoint limit exhaustion.
+
+---
+
+## Backend — Webhook delivery retry: exponential backoff with dead-letter queue
+
+### Description
+
+Webhook deliveries that fail due to transient network errors are currently dropped after the first failure. Implementing exponential backoff retry with a configurable maximum attempt count and a dead-letter queue for permanently failed deliveries ensures webhook consumers receive all events eventually and operators can replay failed deliveries.
+
+### Tasks
+
+- Configure BullMQ webhook queue with exponential backoff: 1s, 2s, 4s... up to `MAX_WEBHOOK_RETRY_DELAY`.
+- Move jobs to dead-letter queue after `MAX_WEBHOOK_ATTEMPTS` failures.
+- Add `GET /admin/webhooks/dead-letter` endpoint listing failed deliveries with failure reasons.
+- Add `POST /admin/webhooks/dead-letter/:id/replay` to manually replay a failed delivery.
+- Add integration tests for retry behavior and dead-letter landing.
+
+### Additional Requirements
+
+- Dead-letter queue must be bounded; oldest entries are evicted when full.
+- Replay must use the original payload, not a re-fetched version.
+
+### Acceptance Criteria
+
+- Failed webhooks retry with exponential backoff in integration tests.
+- Permanently failed deliveries appear in the dead-letter endpoint.
+- Manual replay delivers the original payload to the webhook endpoint.
+
+---
+
+## Backend — Claim filing idempotency: duplicate submission prevention via idempotency key
+
+### Description
+
+Network retries on claim filing can create duplicate claims if the first request succeeded but the response was lost. The existing idempotency middleware must be extended to cover claim filing specifically, storing the response for a configurable TTL and returning the cached response on duplicate requests with the same idempotency key.
+
+### Tasks
+
+- Extend `IdempotencyMiddleware` to store full response body in Redis keyed by `Idempotency-Key` header.
+- Return cached response with `Idempotency-Replayed: true` header on duplicate requests.
+- Set TTL to `IDEMPOTENCY_TTL_SECONDS` (default: 86400).
+- Add integration tests for first request, duplicate request, and expired key behavior.
+- Document the idempotency key format requirements in the OpenAPI spec.
+
+### Additional Requirements
+
+- Idempotency key must be validated as a UUID or similar format; reject arbitrary strings.
+- Cached responses must not be served across different wallet addresses.
+
+### Acceptance Criteria
+
+- Duplicate claim filing requests return the cached response without creating a second claim.
+- `Idempotency-Replayed: true` header is present on replayed responses.
+- Expired keys result in a fresh request being processed.
+
+---
+
+## Backend — Indexer reindex progress tracking: resumable reindex with progress API
+
+### Description
+
+Full reindexes can take hours on large datasets. Without progress tracking, operators cannot estimate completion time or detect stalled reindexes. A progress tracking table and a status API endpoint allow operators to monitor reindex progress and resume interrupted reindexes from the last processed ledger.
+
+### Tasks
+
+- Use the existing `reindex_progress` table to record `processed_ledgers`, `total_ledgers`, and `started_at`.
+- Update progress atomically with each batch; expose `GET /admin/reindex/status` returning progress percentage.
+- Resume interrupted reindexes from the last recorded progress ledger.
+- Add integration tests for progress recording, interruption, and resume.
+- Document the expected reindex duration for typical dataset sizes.
+
+### Additional Requirements
+
+- Progress API must be accessible to admin without triggering a new reindex.
+- Stalled reindex detection: alert if progress has not advanced in `REINDEX_STALL_THRESHOLD` minutes.
+
+### Acceptance Criteria
+
+- Progress percentage is accurate within one batch in integration tests.
+- Interrupted reindexes resume from the correct ledger.
+- Stall detection fires in staging when reindex is artificially paused.
+
+---
+
+## Backend — GraphQL persisted queries: allowlist for production query hardening
+
+### Description
+
+Allowing arbitrary GraphQL queries in production exposes the API to introspection abuse and denial-of-service via deeply nested queries. Persisted query allowlisting restricts production to a known set of pre-approved query hashes, while development mode allows arbitrary queries. The allowlist must be generated from the frontend query files at build time.
+
+### Tasks
+
+- Implement persisted query middleware checking `extensions.persistedQuery.sha256Hash` against an allowlist.
+- Generate allowlist JSON from frontend `.graphql` files in the CI pipeline.
+- Return `PersistedQueryNotFound` for unknown hashes in production mode.
+- Allow arbitrary queries when `GRAPHQL_PERSISTED_QUERIES_ONLY=false` (development default).
+- Add integration tests for allowlisted query, unknown hash rejection, and development bypass.
+
+### Additional Requirements
+
+- Allowlist must be versioned alongside the frontend build.
+- Introspection must be disabled in production regardless of persisted query mode.
+
+### Acceptance Criteria
+
+- Unknown query hashes are rejected in production mode in tests.
+- Allowlisted queries execute correctly.
+- Development mode allows arbitrary queries without allowlist check.
+
+---
+
+## Backend — Notification preference API: user-controlled opt-in and opt-out
+
+### Description
+
+Users must be able to manage their notification preferences without contacting support. A REST API for reading and updating notification preferences, authenticated by wallet JWT, allows users to opt in or out of renewal reminders and claim updates. Preferences must be respected by all notification jobs.
+
+### Tasks
+
+- Implement `GET /notifications/preferences` and `PATCH /notifications/preferences` endpoints.
+- Authenticate via wallet JWT; create default preferences on first access.
+- Validate preference fields against the `NotificationPreference` schema.
+- Add integration tests for read, update, and default creation.
+- Document the preference fields and their effect on notification delivery.
+
+### Additional Requirements
+
+- Preference updates must take effect on the next notification job cycle.
+- Default preferences must be opt-in for all notification types.
+
+### Acceptance Criteria
+
+- Users can read and update their preferences via the API in tests.
+- Notification jobs respect updated preferences within one job cycle.
+- Default preferences are created on first access without error.
+
+---
+
+## Backend — Horizon rate limit circuit breaker: automatic backoff on 429 responses
+
+### Description
+
+The Horizon proxy currently forwards 429 responses from Horizon directly to clients. A circuit breaker that detects sustained Horizon rate limiting, temporarily stops forwarding requests, and returns a cached or degraded response prevents cascading failures and protects the Horizon API key from suspension.
+
+### Tasks
+
+- Implement a circuit breaker around Horizon HTTP calls using `opossum` or equivalent.
+- Open circuit after `HORIZON_CIRCUIT_BREAKER_THRESHOLD` consecutive 429 responses.
+- Return a `503` with `Retry-After` header when circuit is open.
+- Close circuit after `HORIZON_CIRCUIT_BREAKER_RESET_MS` milliseconds.
+- Add integration tests for circuit open, half-open, and close transitions.
+
+### Additional Requirements
+
+- Circuit state must be visible in the `/health` endpoint.
+- Document the circuit breaker thresholds and their rationale.
+
+### Acceptance Criteria
+
+- Circuit opens after the configured threshold of 429 responses in tests.
+- Requests during open circuit return `503` without hitting Horizon.
+- Circuit closes automatically after the reset period.
+
+---
+
+## Backend — Claim search API: full-text and filter search across claims
+
+### Description
+
+The admin dashboard needs to search claims by description, claimant address, policy ID, and status. A search endpoint with combined filter and full-text search capabilities, backed by PostgreSQL full-text search or a search index, allows efficient claim discovery without requiring exact ID lookups.
+
+### Tasks
+
+- Implement `GET /admin/claims/search` with query params: `q` (full-text), `status`, `claimant`, `policyId`, `dateFrom`, `dateTo`.
+- Use PostgreSQL `tsvector` for full-text search on `description` field.
+- Apply cursor pagination; return total count for pagination UI.
+- Add integration tests for each filter type and combined filters.
+- Document the search index maintenance requirements.
+
+### Additional Requirements
+
+- Search must respect tenant isolation and soft-delete filters.
+- Full-text search must be case-insensitive and handle partial matches.
+
+### Acceptance Criteria
+
+- Search returns correct results for each filter type in integration tests.
+- Combined filters narrow results correctly.
+- Soft-deleted claims are excluded from search results.
+
+---
+
+## Backend — Policy CSV export: bulk download for admin reporting
+
+### Description
+
+Compliance and finance teams need bulk policy data exports for reporting. A streaming CSV export endpoint for policies with configurable filters allows large dataset exports without memory exhaustion. The export must be role-gated and logged as an audit event.
+
+### Tasks
+
+- Implement `GET /admin/policies/export` returning a streaming CSV response.
+- Support filters: `status`, `holderAddress`, `policyType`, `dateFrom`, `dateTo`.
+- Stream rows using cursor pagination to avoid loading all rows into memory.
+- Log export request to `admin_audit_log` with actor and filter parameters.
+- Add integration tests for filter application and streaming behavior.
+
+### Additional Requirements
+
+- CSV must include headers and use RFC 4180 formatting.
+- Export must not include soft-deleted policies unless `include_deleted=true` is explicitly passed.
+
+### Acceptance Criteria
+
+- CSV export streams correctly for large datasets without timeout in staging.
+- Filters are applied correctly in integration tests.
+- Export is logged to the audit trail.
+
+---
+
+## Backend — Soroban RPC health check: circuit breaker and fallback for RPC outages
+
+### Description
+
+The backend depends on Soroban RPC for quote simulations and transaction submission. RPC outages currently cause unhandled errors that propagate to clients. A health check with circuit breaker and graceful degradation (returning cached quotes, queuing submissions) improves resilience during RPC maintenance windows.
+
+### Tasks
+
+- Add Soroban RPC connectivity check to the `/health` endpoint.
+- Implement circuit breaker around all Soroban RPC calls with configurable thresholds.
+- Return cached quote responses when circuit is open; queue transaction submissions for retry.
+- Add integration tests for circuit open/close transitions and degraded mode behavior.
+- Document the degraded mode behavior in the ops runbook.
+
+### Additional Requirements
+
+- Circuit state must be visible in Prometheus metrics.
+- Queued submissions must be processed in order when the circuit closes.
+
+### Acceptance Criteria
+
+- `/health` reflects RPC unavailability within one check interval.
+- Quote requests return cached responses when RPC circuit is open.
+- Queued submissions are processed after RPC recovery.
+
+---
+
+## Backend — Tenant provisioning API: admin endpoint to create and configure tenants
+
+### Description
+
+Multi-tenant deployments require a way to provision new tenants without direct database access. An admin API for tenant creation, configuration, and deactivation allows operators to onboard new tenants safely with proper isolation guarantees. Each tenant must have a unique identifier and configurable contract ID scope.
+
+### Tasks
+
+- Implement `POST /admin/tenants`, `GET /admin/tenants`, `PATCH /admin/tenants/:id`, and `DELETE /admin/tenants/:id` endpoints.
+- Each tenant has `id`, `name`, `contractIds`, `active`, and `createdAt` fields.
+- Tenant creation validates that contract IDs are not already assigned to another tenant.
+- Add integration tests for CRUD operations and contract ID conflict detection.
+- Document the tenant isolation model and how tenant ID is propagated to DB queries.
+
+### Additional Requirements
+
+- Tenant deactivation must not delete data; it must prevent new data ingestion for that tenant.
+- Emit audit log entries for all tenant management operations.
+
+### Acceptance Criteria
+
+- Tenant CRUD operations work correctly in integration tests.
+- Contract ID conflicts are detected and rejected.
+- Deactivated tenants stop receiving new indexed data.
+
+---
+
+## Backend — Metrics endpoint authentication: restrict Prometheus scrape to internal network
+
+### Description
+
+The `/metrics` endpoint currently has no authentication, exposing internal performance data to anyone who can reach the server. Restricting access to a configurable IP allowlist or requiring a bearer token ensures metrics are only accessible to the Prometheus scraper and authorized operators.
+
+### Tasks
+
+- Add `METRICS_AUTH_TOKEN` environment variable; require `Authorization: Bearer <token>` on `/metrics`.
+- Alternatively, support IP allowlist via `METRICS_ALLOWED_IPS` for internal network restriction.
+- Return `401` for unauthenticated requests and `403` for non-allowlisted IPs.
+- Add integration tests for authenticated access, unauthenticated rejection, and IP allowlist.
+- Document the Prometheus scrape configuration for the chosen auth method.
+
+### Additional Requirements
+
+- Auth method must be configurable without code changes.
+- Document the security implications of each auth method.
+
+### Acceptance Criteria
+
+- Unauthenticated `/metrics` requests return `401` in tests.
+- Prometheus scraper with correct credentials receives metrics successfully.
+- IP allowlist mode blocks requests from non-allowlisted addresses.
+
+---
+
+## Backend — Claim status history API: paginated transition log per claim
+
+### Description
+
+The frontend claim timeline component needs a paginated history of status transitions for a claim. A dedicated endpoint returning the transition log from the `raw_events` table, ordered by ledger, provides this without requiring the frontend to reconstruct history from event streams.
+
+### Tasks
+
+- Implement `GET /claims/:id/history` returning paginated status transitions with ledger, timestamp, and actor.
+- Source data from `raw_events` table filtered by claim ID and status-change event types.
+- Apply cursor pagination; return `nextCursor` for subsequent pages.
+- Add integration tests with fixed event fixtures verifying correct ordering and pagination.
+- Document the response schema in the OpenAPI spec.
+
+### Additional Requirements
+
+- History must include admin override transitions with the override reason.
+- Soft-deleted claims must return history to admin callers but `404` to public callers.
+
+### Acceptance Criteria
+
+- History is returned in ledger order in integration tests.
+- Pagination works correctly for claims with many transitions.
+- Admin override transitions include the reason field.
+
+---
+
+## Backend — Environment variable documentation generator: auto-sync from definitions
+
+### Description
+
+The `backend/.env.example` file and `docs/environment-variables.md` frequently drift from the actual `env.definitions.ts` source of truth. An automated generator script that produces both files from the definitions ensures documentation is always accurate and reduces the maintenance burden of keeping three files in sync.
+
+### Tasks
+
+- Implement `scripts/generate-env-example.ts` reading `env.definitions.ts` and writing `.env.example`.
+- Extend the script to also write `docs/environment-variables.md` with descriptions and defaults.
+- Add a CI check that fails if committed `.env.example` or docs diverge from the generated output.
+- Add a `make generate-env-docs` command for local use.
+- Document the process for adding new environment variables.
+
+### Additional Requirements
+
+- Generated files must include a header warning against manual edits.
+- Sensitive variable names must be flagged in the generated docs.
+
+### Acceptance Criteria
+
+- CI fails when `.env.example` diverges from `env.definitions.ts` in tests.
+- Generated docs include all variables with descriptions and defaults.
+- New variables added to definitions appear in both generated files automatically.
+
+---
+
+## Backend — Claim payout confirmation: verify on-chain transfer before marking Paid
+
+### Description
+
+The backend currently marks a claim as `Paid` based on the indexer detecting a `ClaimPaid` event. However, the event could theoretically be emitted without a successful token transfer in edge cases. Adding a verification step that confirms the token transfer via Horizon before finalizing the `Paid` status prevents false-positive payment records.
+
+### Tasks
+
+- After detecting `ClaimPaid` event, query Horizon for the corresponding transaction's operations.
+- Verify that a token transfer of the correct amount to the correct recipient occurred.
+- Only update claim status to `Paid` after verification; log and alert on verification failure.
+- Add integration tests with mocked Horizon responses for success and failure cases.
+- Document the verification logic and failure handling in the indexer runbook.
+
+### Additional Requirements
+
+- Verification must not block the indexer from processing subsequent events.
+- Verification failures must trigger an alert and create a manual review task.
+
+### Acceptance Criteria
+
+- Claims are only marked `Paid` after Horizon transfer verification in tests.
+- Verification failures are logged and alerted without blocking the indexer.
+- Mocked Horizon integration tests cover success and failure scenarios.
+
+---
+
+## Backend — Support ticket API: create and track user support requests
+
+### Description
+
+The support contact form needs a backend endpoint to receive and store support tickets. The endpoint must validate input, apply CAPTCHA verification, store tickets in the `support_tickets` table, and notify the support team via a configurable webhook. Ticket status must be updatable by admin.
+
+### Tasks
+
+- Implement `POST /support/tickets` with email, subject, and message validation.
+- Integrate CAPTCHA verification via the existing `CaptchaService`.
+- Store IP hash (not raw IP) for spam detection.
+- Notify support team via configurable webhook on new ticket creation.
+- Add `PATCH /admin/support/tickets/:id` for status updates with audit logging.
+- Add integration tests for ticket creation, CAPTCHA failure, and status update.
+
+### Additional Requirements
+
+- Rate limit ticket creation per IP to prevent spam.
+- Never store raw IP addresses; use one-way hash.
+
+### Acceptance Criteria
+
+- Tickets are created and stored correctly in integration tests.
+- CAPTCHA failure rejects the request with a clear error.
+- Admin status updates are logged to the audit trail.
+
+---
+
+## Backend — Prisma query performance: slow query logging and index recommendations
+
+### Description
+
+Slow database queries degrade API response times and can cause timeouts under load. Adding slow query logging with configurable thresholds, query plan analysis for the most common queries, and index recommendations based on observed query patterns improves database performance proactively.
+
+### Tasks
+
+- Configure Prisma to log queries exceeding `SLOW_QUERY_THRESHOLD_MS` (default: 500ms).
+- Add a structured log entry for slow queries including the query hash and duration.
+- Run `EXPLAIN ANALYZE` on the top 10 most frequent queries and document index recommendations.
+- Implement recommended indexes via Prisma migrations.
+- Add a Prometheus metric for slow query count per endpoint.
+
+### Additional Requirements
+
+- Slow query logs must not include query parameters that could contain PII.
+- Index additions must be tested for write performance impact.
+
+### Acceptance Criteria
+
+- Slow queries above the threshold are logged in staging.
+- Recommended indexes are implemented and tested.
+- Slow query metric is visible in Prometheus scrape.
+
+
+## Backend — CORS policy hardening: environment-specific origin allowlist
+
+### Description
+
+The current CORS configuration may be too permissive in production, allowing requests from unintended origins. Hardening CORS to an environment-specific origin allowlist, with strict preflight caching and credential handling, reduces the attack surface for cross-origin request forgery.
+
+### Tasks
+
+- Define `CORS_ALLOWED_ORIGINS` environment variable as a comma-separated list.
+- Configure NestJS CORS with the allowlist; reject requests from unlisted origins.
+- Set `Access-Control-Max-Age` for preflight caching; configure `credentials: true` only for authenticated endpoints.
+- Add integration tests for allowed origin, disallowed origin rejection, and preflight response.
+- Document the CORS configuration in the security headers spec.
+
+### Additional Requirements
+
+- Wildcard origins must be explicitly blocked in production mode.
+- CORS configuration must be testable without running a browser.
+
+### Acceptance Criteria
+
+- Requests from non-allowlisted origins are rejected in integration tests.
+- Preflight responses include correct `Access-Control-Max-Age` headers.
+- Wildcard origin is rejected in production mode.
+
+---
+
+## Backend — Claim evidence download proxy: authenticated IPFS content delivery
+
+### Description
+
+Exposing raw IPFS gateway URLs to clients allows anyone to access evidence files without authentication. Proxying evidence downloads through the backend with wallet JWT authentication ensures only authorized parties (claimant, voters, admin) can access claim evidence files.
+
+### Tasks
+
+- Implement `GET /claims/:id/evidence/:index` proxying IPFS content with authentication.
+- Validate that the requester is the claimant, an active voter, or an admin.
+- Stream content from IPFS gateway; set appropriate `Content-Type` and `Content-Disposition` headers.
+- Add integration tests for authorized access, unauthorized rejection, and missing evidence index.
+- Document the access control rules in the claims API documentation.
+
+### Additional Requirements
+
+- Proxy must not cache evidence content beyond a short TTL to respect potential IPFS content updates.
+- Log evidence access events for audit purposes.
+
+### Acceptance Criteria
+
+- Unauthorized evidence access returns `403` in tests.
+- Authorized access streams content with correct headers.
+- Evidence access is logged to the audit trail.
+
+---
+
+## Backend — Ledger gap alert deduplication: prevent alert storms during outages
+
+### Description
+
+The existing `LedgerGapAlertDedup` table is defined but the deduplication logic may not be fully implemented. During extended RPC outages, the gap detection job could fire alerts repeatedly for the same gap. Implementing proper deduplication with a configurable cooldown period prevents alert fatigue.
+
+### Tasks
+
+- Implement deduplication logic in the gap detection service using `LedgerGapAlertDedup` table.
+- Only fire a new alert if the last alert for the same network was more than `GAP_ALERT_COOLDOWN_MINUTES` ago.
+- Update `lastFiredAt` atomically with the alert emission.
+- Add integration tests for first alert, suppressed duplicate, and cooldown expiry.
+- Document the cooldown configuration and rationale.
+
+### Additional Requirements
+
+- Deduplication must be per-network to support multi-network deployments.
+- Alert suppression must be logged for ops visibility.
+
+### Acceptance Criteria
+
+- Duplicate alerts within the cooldown window are suppressed in tests.
+- First alert after cooldown expiry fires correctly.
+- Suppressed alerts are logged with the reason.
+
+---
+
+## Backend — Admin dashboard stats API: aggregated platform metrics endpoint
+
+### Description
+
+The admin dashboard needs a single endpoint returning key platform metrics: total policies, active policies, total claims by status, treasury balance, and indexer lag. Aggregating these in one endpoint reduces the number of API calls the dashboard makes on load and simplifies the frontend data fetching logic.
+
+### Tasks
+
+- Implement `GET /admin/stats` returning aggregated counts and key metrics.
+- Source policy and claim counts from DB; treasury balance from Redis solvency snapshot; indexer lag from `ledger_cursors`.
+- Cache the response in Redis with a short TTL (default: 30s).
+- Add integration tests with fixed DB fixtures verifying correct aggregation.
+- Document the response schema in the OpenAPI spec.
+
+### Additional Requirements
+
+- Stats must be scoped to the active tenant in multi-tenant deployments.
+- Cache must be invalidated when the indexer processes a new batch.
+
+### Acceptance Criteria
+
+- Stats endpoint returns correct aggregated values for test fixtures.
+- Response is cached and served from cache on repeated requests within TTL.
+- Tenant scoping is applied correctly in multi-tenant tests.
+
+---
+
+## Backend — Wasm drift monitoring: scheduled hash comparison with deployment registry
+
+### Description
+
+The `WasmDriftAlert` table and `wasm-drift.service.ts` exist but the scheduled monitoring job may not be fully wired. This item ensures the job runs on a configurable schedule, compares deployed wasm hashes against the deployment registry, and fires webhook alerts on drift detection with proper deduplication.
+
+### Tasks
+
+- Wire `WasmDriftService` to a BullMQ repeatable job with configurable interval.
+- Compare on-chain wasm hash (via `get_wasm_hash` simulation) against `deployment-registry.json`.
+- Create `WasmDriftAlert` row on first detection; skip if `dedupKey` already exists and unresolved.
+- Fire webhook alert with contract name, expected hash, and actual hash.
+- Add integration tests for drift detection, deduplication, and alert firing.
+
+### Additional Requirements
+
+- Job must handle RPC failures gracefully without false-positive drift alerts.
+- Document the resolution process for wasm drift alerts.
+
+### Acceptance Criteria
+
+- Drift is detected and alerted within one job cycle in integration tests.
+- Duplicate alerts for the same drift are suppressed.
+- RPC failures produce a distinct "hash unknown" state rather than a false drift alert.
+
+---
+
+## Backend — Privacy request processing: GDPR anonymization workflow
+
+### Description
+
+The `PrivacyRequest` model exists but the processing workflow may not be fully implemented. This item ensures that privacy requests trigger actual data anonymization (replacing PII fields with hashed or null values), update the request status, and notify the requesting staff member on completion.
+
+### Tasks
+
+- Implement `PrivacyService.processRequest(requestId)` anonymizing off-chain PII fields for the subject wallet.
+- Replace email addresses in `SupportTicket` with a hash; null out description fields in `Claim` if they contain PII.
+- Update `PrivacyRequest` status to `COMPLETED` with `rowsAffected` count.
+- Notify requesting staff via email on completion.
+- Add integration tests for anonymization, status update, and notification.
+
+### Additional Requirements
+
+- On-chain and IPFS data cannot be anonymized; document this limitation in the privacy runbook.
+- Anonymization must be idempotent; re-running on an already-anonymized subject is safe.
+
+### Acceptance Criteria
+
+- PII fields are anonymized correctly for test fixtures.
+- Request status transitions to `COMPLETED` after processing.
+- Idempotent re-processing does not corrupt already-anonymized data.
+
+---
+
+## Backend — Feature flag API: admin CRUD for runtime feature toggles
+
+### Description
+
+Feature flags are stored in the `FeatureFlag` table but the admin API for managing them may be incomplete. A full CRUD API with audit logging, validation, and real-time propagation to the feature flag service ensures operators can safely toggle features without redeployment.
+
+### Tasks
+
+- Implement `GET /admin/feature-flags`, `POST /admin/feature-flags`, and `PATCH /admin/feature-flags/:key` endpoints.
+- Validate flag keys against a predefined allowlist to prevent arbitrary flag creation.
+- Log all flag changes to `admin_audit_log` with actor and old/new values.
+- Propagate flag changes to the in-memory cache within `FEATURE_FLAG_PROPAGATION_MS`.
+- Add integration tests for CRUD operations, unauthorized access, and propagation.
+
+### Additional Requirements
+
+- Flag deletion must be blocked; use `enabled: false` instead.
+- Document each flag's purpose and expected behavior in the feature flags doc.
+
+### Acceptance Criteria
+
+- Flag changes are reflected in the feature flag service within the propagation window.
+- Unauthorized callers receive `403`.
+- All flag changes are logged to the audit trail.
+
+---
+
+## Backend — Claim rate limiting: per-wallet claim filing frequency cap
+
+### Description
+
+The claim rate limiting spec exists but the implementation may need hardening. This item ensures the per-wallet claim filing rate limit is enforced using Redis sliding windows, returns correct `Retry-After` headers, and integrates with the existing `RateLimitService` without duplicating logic.
+
+### Tasks
+
+- Implement `ClaimRateLimitGuard` using `RateLimitService` with wallet-scoped sliding window.
+- Configure `MAX_CLAIMS_PER_WALLET_PER_HOUR` and `MAX_CLAIMS_PER_WALLET_PER_DAY` via environment variables.
+- Return `429` with `Retry-After` and `X-RateLimit-*` headers on limit exceeded.
+- Add integration tests for within-limit, at-limit, and over-limit scenarios.
+- Document the rate limit values and rationale in the claim rate limiting spec.
+
+### Additional Requirements
+
+- Rate limits must be enforced per wallet address, not per IP.
+- Limits must be configurable per environment without code changes.
+
+### Acceptance Criteria
+
+- Over-limit claim filing returns `429` with correct headers in tests.
+- Rate limits are wallet-scoped and independent of IP-based limits.
+- Limit values are configurable via environment variables.
+
+---
+
+## Backend — Transaction submission queue: async XDR submission with status tracking
+
+### Description
+
+Synchronous transaction submission blocks the request thread while waiting for Stellar network confirmation. Moving submission to an async queue with status tracking allows the API to return immediately with a job ID, and clients poll for the result. This improves throughput and resilience during network congestion.
+
+### Tasks
+
+- Implement `POST /tx/submit` enqueuing the XDR to a BullMQ job and returning `{ jobId, status: "queued" }`.
+- Worker submits to Soroban RPC and updates job status in Redis.
+- Implement `GET /tx/status/:jobId` returning current status and result.
+- Add integration tests for enqueue, processing, success, and failure states.
+- Document the polling interval recommendation in the API docs.
+
+### Additional Requirements
+
+- Job results must be retained for `TX_RESULT_TTL_SECONDS` before expiry.
+- Failed submissions must include the Soroban error code in the status response.
+
+### Acceptance Criteria
+
+- Submission returns `queued` status immediately without waiting for network confirmation.
+- Status endpoint reflects correct state transitions in integration tests.
+- Failed submissions include actionable error information.
+
+---
+
+## Backend — Horizon transaction enrichment: add contract event data to transaction history
+
+### Description
+
+The Horizon transaction history proxy returns raw Stellar operations without contract event context. Enriching the response with decoded contract events from the `raw_events` table provides the frontend with a unified view of what each transaction did (e.g. "Filed claim #42 for policy #7") without requiring separate API calls.
+
+### Tasks
+
+- After fetching Horizon transactions, query `raw_events` for matching `txHash` values.
+- Decode and attach relevant event data to each transaction in the response.
+- Add `contractEvents: DecodedEvent[]` field to the transaction response DTO.
+- Add integration tests with mocked Horizon and DB fixtures verifying enrichment.
+- Document the enrichment logic and which event types are decoded.
+
+### Additional Requirements
+
+- Enrichment must not fail the request if `raw_events` query fails; return unenriched data with a warning flag.
+- Decoded event data must not expose internal contract storage details.
+
+### Acceptance Criteria
+
+- Enriched transactions include correct contract event data in integration tests.
+- Enrichment failure returns unenriched data with `eventsEnriched: false` flag.
+- Response schema is documented in the OpenAPI spec.
+
+---
+
+## Backend — Admin bulk claim status update: batch transition with audit trail
+
+### Description
+
+Compliance events may require bulk status updates across many claims simultaneously (e.g. freezing all claims from a specific policy type). A bulk update endpoint with mandatory reason, dry-run mode, and full audit logging allows operators to perform these operations safely.
+
+### Tasks
+
+- Implement `POST /admin/claims/bulk-update` with `{ claimIds, newStatus, reason, dryRun }` body.
+- Dry-run mode returns the list of claims that would be affected without making changes.
+- Apply updates in a single DB transaction; log each update to `admin_audit_log`.
+- Cap batch size at a documented maximum to prevent timeout.
+- Add integration tests for dry-run, live update, cap enforcement, and unauthorized access.
+
+### Additional Requirements
+
+- Bulk update must not affect claims in terminal states unless explicitly overridden.
+- Reason field must be non-empty and at least 20 characters.
+
+### Acceptance Criteria
+
+- Dry-run returns correct affected claim list without modifying data.
+- Live update applies changes and creates audit log entries in tests.
+- Over-cap requests are rejected before any processing.
+
+---
+
+## Backend — Indexer event deduplication: idempotent upsert for replayed events
+
+### Description
+
+During reindex operations, the indexer may process the same events multiple times. Without proper deduplication, this creates duplicate rows in `raw_events`, `claims`, and `votes` tables. Implementing idempotent upserts using the `(txHash, eventIndex)` unique constraint ensures replayed events are safely ignored.
+
+### Tasks
+
+- Use `upsert` with `(txHash, eventIndex)` as the conflict key for all `raw_events` inserts.
+- Use `upsert` with `(claimId, voterAddress)` for vote inserts; update fields on conflict.
+- Add a metric counter for deduplicated events to monitor reindex efficiency.
+- Add integration tests for first insert, duplicate insert, and partial duplicate batch.
+- Document the deduplication strategy in the indexer runbook.
+
+### Additional Requirements
+
+- Upserts must not overwrite fields that should be immutable (e.g. `createdAt`).
+- Deduplication metric must distinguish between claim events and vote events.
+
+### Acceptance Criteria
+
+- Duplicate event processing does not create duplicate rows in tests.
+- Deduplication metric increments correctly for replayed events.
+- Immutable fields are not overwritten on conflict.
+
+---
+
+## Backend — Health check endpoint expansion: detailed component status
+
+### Description
+
+The current `/health` endpoint returns a simple up/down status. Expanding it to include individual component statuses (DB, Redis, Soroban RPC, Horizon, indexer lag) with response time measurements allows load balancers and monitoring systems to make more informed routing decisions.
+
+### Tasks
+
+- Extend `/health` to return `{ status, components: { db, redis, rpc, horizon, indexer } }`.
+- Each component includes `status: "up" | "down" | "degraded"` and `responseTimeMs`.
+- Add `indexer.lagLedgers` field from `ledger_cursors` table.
+- Add integration tests for all-healthy, partial-degraded, and all-down scenarios.
+- Document the health check response schema and how load balancers should interpret it.
+
+### Additional Requirements
+
+- Health check must complete within `HEALTH_CHECK_TIMEOUT_MS` (default: 5000ms).
+- Individual component failures must not cause the health check itself to throw.
+
+### Acceptance Criteria
+
+- All component statuses are present in the health response in tests.
+- Partial degradation returns `207` status code with component details.
+- Health check completes within the configured timeout even when components are slow.
+
