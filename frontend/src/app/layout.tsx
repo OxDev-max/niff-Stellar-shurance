@@ -12,6 +12,7 @@ import { WalletProvider, NetworkMismatchModal } from "@/features/wallet";
 import { inter, ibmPlexMono } from "@/lib/fonts";
 import { QueryProvider } from "@/lib/query";
 import { BottomTabBar } from "@/components/nav/BottomTabBar";
+import { SiteHeader } from "@/components/nav/SiteHeader";
 import { NetworkBanner } from "@/components/ui/network-banner";
 import { OnboardingTour } from "@/components/OnboardingTour";
 import { SessionTimeoutModal } from "@/components/SessionTimeoutModal";
@@ -117,6 +118,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
           <QueryProvider>
             <WalletProvider>
               <NetworkBanner />
+              <SiteHeader />
               {children}
               <OnboardingTour />
               <SessionTimeoutModal />
