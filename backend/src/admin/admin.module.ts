@@ -4,6 +4,7 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { AdminController } from './admin.controller';
 import { AdminService } from './admin.service';
 import { AdminPoliciesService } from './admin-policies.service';
+import { AdminTenantsService } from './admin-tenants.service';
 import { AuditService } from './audit.service';
 import { PrismaModule } from '../prisma/prisma.module';
 import { AuthModule } from '../auth/auth.module';
@@ -12,6 +13,7 @@ import { RateLimitModule } from '../rate-limit/rate-limit.module';
 import { QueueMonitorService } from '../queues/queue-monitor.service';
 import { BullBoardMiddleware } from './bull-board.middleware';
 import { MetricsModule } from '../metrics/metrics.module';
+import { CacheModule } from '../cache/cache.module';
 
 @Module({
   imports: [
@@ -20,6 +22,7 @@ import { MetricsModule } from '../metrics/metrics.module';
     MaintenanceModule,
     RateLimitModule,
     MetricsModule,
+    CacheModule,
     JwtModule.registerAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
@@ -27,7 +30,7 @@ import { MetricsModule } from '../metrics/metrics.module';
     }),
   ],
   controllers: [AdminController],
-  providers: [AdminService, AdminPoliciesService, AuditService, QueueMonitorService],
+  providers: [AdminService, AdminPoliciesService, AdminTenantsService, AuditService, QueueMonitorService],
   exports: [AuditService, QueueMonitorService],
 })
 export class AdminModule implements NestModule {

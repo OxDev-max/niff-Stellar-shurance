@@ -100,6 +100,12 @@ impl NiffyInsure {
         soroban_sdk::String::from_str(&env, env!("CARGO_PKG_VERSION"))
     }
 
+    /// Read-only: on-chain WASM hash for this deployed contract.
+    /// The returned value is the canonical hash used by the deployment registry and RPC tooling.
+    pub fn get_wasm_hash(env: Env) -> soroban_sdk::BytesN<32> {
+        env.deployer().current_contract_wasm_hash()
+    }
+
     /// Read-only: balance of the default payout token held by this contract (payout reserve).
     /// Matches funds available for `process_claim` for the configured default asset.
     pub fn get_treasury_balance(env: Env) -> i128 {
@@ -176,6 +182,7 @@ impl NiffyInsure {
             52 => validate::Error::NonceMismatch,
             53 => validate::Error::ClaimNotProcessing,
             54 => validate::Error::RollingClaimCapExceeded,
+            55 => validate::Error::PayoutDeadlineNotReached,
             _ => validate::Error::ClaimNotApproved,
         };
         policy::map_quote_error(&env, err)
@@ -214,11 +221,33 @@ impl NiffyInsure {
     }
 
     /// Admin-only: add or remove an asset from the allowlist.
-    pub fn set_allowed_asset(env: Env, asset: Address, allowed: bool) {
+    /// Always emits `asset_set` (idempotent — even if the state is unchanged).
+    pub fn set_allowed_asset(
+        env: Env,
+        asset: Address,
+        allowed: bool,
+        symbol_hint: soroban_sdk::String,
+        decimals: u32,
+    ) {
         let _admin = admin::require_admin(&env);
         storage::bump_instance(&env);
         claim::set_allowed_asset(&env, &asset, allowed);
-        AllowedAssetUpdated { asset, allowed }.publish(&env);
+        AllowedAssetUpdated {
+            asset: asset.clone(),
+            allowed,
+        }
+        .publish(&env);
+        events::emit_asset_allowlisted(
+            &env,
+            &asset,
+            allowed,
+            if allowed {
+                symbol_hint
+            } else {
+                soroban_sdk::String::from_str(&env, "")
+            },
+            if allowed { decimals } else { 0 },
+        );
     }
 
     pub fn is_allowed_asset(env: Env, asset: Address) -> bool {
@@ -282,6 +311,14 @@ impl NiffyInsure {
         claim_id: u64,
     ) -> Result<types::ClaimStatus, validate::Error> {
         claim::process_deadline(&env, claim_id)
+    }
+
+    /// Permissionless keeper: auto-reject an approved claim once its payout deadline has elapsed.
+    pub fn process_payout_timeout(
+        env: Env,
+        claim_id: u64,
+    ) -> Result<types::ClaimStatus, validate::Error> {
+        claim::process_payout_timeout(&env, claim_id)
     }
 
     pub fn get_claim_history(
@@ -732,6 +769,17 @@ impl NiffyInsure {
     /// Read the current max evidence count (falls back to compile-time default when unset).
     pub fn get_max_evidence_count(env: Env) -> u32 {
         storage::get_max_evidence_count(&env)
+    }
+
+    /// Admin-only: update the allowlisted IPFS gateway URL prefixes for evidence validation.
+    /// Evidence URLs must start with `ipfs://` or one of the allowlisted gateway prefixes.
+    pub fn admin_set_gateway_allowlist(env: Env, gateways: Vec<String>) -> Result<(), AdminError> {
+        admin::set_gateway_allowlist(&env, gateways)
+    }
+
+    /// Read the current allowlisted IPFS gateway URL prefixes.
+    pub fn get_gateway_allowlist(env: Env) -> Vec<String> {
+        storage::get_gateway_allowlist(&env)
     }
 
     // ═════════════════════════════════════════════════════════════════════════════

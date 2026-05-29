@@ -25,16 +25,18 @@ import { AdminRoleGuard } from './guards/admin-role.guard';
 import { AdminService } from './admin.service';
 import { AdminPoliciesService } from './admin-policies.service';
 import { AuditService } from './audit.service';
+import { AdminStatsService } from './admin-stats.service';
 import { ReindexDto } from './dto/reindex.dto';
 import { BackfillDto } from './dto/backfill.dto';
 import { AuditQueryDto } from './dto/audit-query.dto';
 import { FeatureFlagDto } from './dto/feature-flag.dto';
 import { SetRateLimitDto, EnableOverrideDto } from './dto/rate-limit.dto';
+import { BulkUpdateClaimsDto, BULK_UPDATE_MAX_BATCH } from './dto/bulk-update-claims.dto';
 import { PrivacyService, PrivacyRequestType } from '../maintenance/privacy.service';
 import { RateLimitService } from '../rate-limit/rate-limit.service';
 import { QueueMonitorService } from '../queues/queue-monitor.service';
 import { SolvencyMonitoringService } from '../maintenance/solvency-monitoring.service';
-import { getDeadLetterJobs, replayDeadLetterJob } from '../webhooks/queue';
+import { AdminTenantsService, CreateTenantDto, UpdateTenantDto } from './admin-tenants.service';
 
 class PrivacyRequestDto {
   @IsString() subjectWalletAddress!: string;
@@ -62,7 +64,22 @@ export class AdminController {
     private readonly queueMonitor: QueueMonitorService,
     private readonly configService: ConfigService,
     private readonly solvencyMonitoringService: SolvencyMonitoringService,
+    private readonly tenantsService: AdminTenantsService,
   ) {}
+
+  /**
+   * GET /admin/stats
+   *
+   * Aggregated platform metrics: policy counts, claim counts by status,
+   * treasury balance (from Redis solvency snapshot), and indexer lag.
+   * Response is cached in Redis with a short TTL (default: 30s).
+   */
+  @Get('stats')
+  @ApiOperation({ summary: 'Aggregated platform metrics (cached)' })
+  async getStats(@Req() req: AdminRequest) {
+    const tenantId = (req as unknown as { tenantId?: string }).tenantId;
+    return this.adminStatsService.getStats(tenantId);
+  }
 
   /**
    * POST /admin/reindex
@@ -88,6 +105,22 @@ export class AdminController {
       ipAddress: req.ip,
     });
     return { jobId, fromLedger: dto.fromLedger, network, status: 'queued' };
+  }
+
+  /**
+   * GET /admin/reindex/status
+   *
+   * Returns the latest reindex progress for a network, including percentage complete.
+   */
+  @Get('reindex/status')
+  @ApiOperation({ summary: 'Get latest reindex progress for a network' })
+  async getReindexStatus(@Query('network') networkParam?: string) {
+    const network = networkParam ?? this.configService.get<string>('STELLAR_NETWORK', 'testnet');
+    const status = await this.adminService.getReindexStatus(network);
+    if (!status) {
+      throw new NotFoundException(`No reindex progress found for network ${network}`);
+    }
+    return status;
   }
 
   /**
@@ -252,6 +285,27 @@ export class AdminController {
   @ApiOperation({ summary: 'List all feature flags' })
   async listFeatureFlags() {
     return this.adminService.getFeatureFlags();
+  }
+
+  /**
+   * POST /admin/feature-flags
+   *
+   * Creates a new feature flag. Key must be in the predefined allowlist.
+   * Writes an immutable audit row.
+   */
+  @Post('feature-flags')
+  @HttpCode(HttpStatus.CREATED)
+  @ApiOperation({ summary: 'Create a new feature flag (allowlisted keys only)' })
+  async createFeatureFlag(@Body() dto: FeatureFlagDto & { key: string }, @Req() req: AdminRequest) {
+    const actor = req.user?.walletAddress ?? 'unknown';
+    const flag = await this.adminService.createFeatureFlag(dto.key, dto.enabled, dto.description, actor);
+    await this.auditService.write({
+      actor,
+      action: 'feature_flag_create',
+      payload: { key: dto.key, enabled: dto.enabled, description: dto.description },
+      ipAddress: req.ip,
+    });
+    return flag;
   }
 
   /**
@@ -422,50 +476,76 @@ export class AdminController {
   }
 
   /**
-   * GET /admin/webhooks/dead-letter
+   * GET /admin/claims/search
    *
-   * Lists all permanently failed webhook deliveries (jobs that exhausted all
-   * MAX_WEBHOOK_ATTEMPTS retries). These are the dead-letter entries.
-   *
-   * Query params:
-   *   limit — max records to return (default 100).
+   * Search claims with full-text search and filtering.
+   * Supports: q (text search), status, claimant, policyId, dateFrom, dateTo
+   * Returns cursor-paginated results with total count.
    */
-  @Get('webhooks/dead-letter')
-  @ApiOperation({ summary: 'List permanently failed webhook deliveries (dead-letter queue)' })
-  async getWebhookDeadLetter(@Query('limit') limitParam?: string) {
-    const limit = limitParam ? Math.min(parseInt(limitParam, 10), 500) : 100;
-    const jobs = await getDeadLetterJobs(limit);
-    return { total: jobs.length, jobs };
+  @Get('claims/search')
+  @ApiOperation({ summary: 'Search claims with filters and full-text search' })
+  async searchClaims(
+    @Query('q') q?: string,
+    @Query('status') status?: string,
+    @Query('claimant') claimant?: string,
+    @Query('policyId') policyId?: string,
+    @Query('dateFrom') dateFrom?: string,
+    @Query('dateTo') dateTo?: string,
+    @Query('after') after?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.adminService.searchClaims({
+      q,
+      status,
+      claimant,
+      policyId,
+      dateFrom,
+      dateTo,
+      after,
+      limit: limit ? parseInt(limit, 10) : undefined,
+    });
   }
 
   /**
-   * POST /admin/webhooks/dead-letter/:id/replay
+   * GET /admin/policies/export
    *
-   * Manually replay a permanently failed webhook delivery.
-   * Resets the job's attempt count and re-queues it for delivery.
-   * Writes an immutable audit row.
+   * Stream policies as CSV with optional filtering.
+   * Supports: status, holderAddress, policyType, dateFrom, dateTo
+   * Returns streaming CSV response.
    */
-  @Post('webhooks/dead-letter/:id/replay')
-  @HttpCode(HttpStatus.ACCEPTED)
-  @ApiOperation({ summary: 'Replay a dead-letter webhook delivery by job ID' })
-  async replayWebhookDeadLetter(
-    @Param('id') jobId: string,
+  @Get('policies/export')
+  @ApiOperation({ summary: 'Export policies as CSV with filters' })
+  async exportPolicies(
     @Req() req: AdminRequest,
+    @Res() res: Response,
+    @Query('status') status?: string,
+    @Query('holderAddress') holderAddress?: string,
+    @Query('policyType') policyType?: string,
+    @Query('dateFrom') dateFrom?: string,
+    @Query('dateTo') dateTo?: string,
   ) {
-    try {
-      await replayDeadLetterJob(jobId);
-    } catch (err) {
-      throw new NotFoundException(
-        err instanceof Error ? err.message : `Dead-letter job ${jobId} not found`,
-      );
-    }
     const actor = req.user?.walletAddress ?? 'unknown';
+
+    // Write audit log entry
     await this.auditService.write({
       actor,
-      action: 'webhook_dlq_replayed',
-      payload: { jobId },
+      action: 'policies_exported',
+      payload: { status, holderAddress, policyType, dateFrom, dateTo },
       ipAddress: req.ip,
     });
-    return { jobId, status: 'replayed' };
+
+    // Generate CSV
+    const csv = await this.adminService.exportPoliciesCSV({
+      status,
+      holderAddress,
+      policyType,
+      dateFrom,
+      dateTo,
+    });
+
+    // Stream response
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', 'attachment; filename="policies.csv"');
+    res.send(csv);
   }
 }

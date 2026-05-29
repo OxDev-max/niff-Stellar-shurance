@@ -243,6 +243,9 @@ pub fn map_quote_error(env: &Env, err: Error) -> QuoteFailure {
         Error::RollingClaimCapExceeded => {
             "rolling claim cap exceeded: total paid claims for this policy exceed the configured cap for this window"
         },
+        Error::PayoutDeadlineNotReached => {
+            "payout timeout is not yet due: the approved claim must wait for its deadline to pass"
+        },
     };
     QuoteFailure {
         code: err as u32,

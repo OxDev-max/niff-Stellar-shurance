@@ -96,6 +96,8 @@ pub enum DataKey {
     MaxEvidenceCount,
     /// Last `end_ledger` for which a PolicyExpired event was emitted for this policy term.
     PolicyExpiredEventEndLedger(Address, u32),
+    /// Allowlisted IPFS gateway URL prefixes for evidence validation.
+    GatewayAllowlist,
     // ── Reserved: future governance token (`governance_token` module) ────────
     /// Runtime toggle: only meaningful when crate is built with `governance-token`.
     /// Unset or `false` in MVP; no token logic runs unless feature + flag align.
@@ -807,6 +809,24 @@ pub fn get_max_evidence_count(env: &Env) -> u32 {
         .get(&DataKey::MaxEvidenceCount)
         .unwrap_or(crate::types::IMAGE_URLS_MAX)
 }
+
+// ── Gateway allowlist (instance) ──────────────────────────────────────────────
+
+/// Set the allowlisted IPFS gateway URL prefixes for evidence validation.
+pub fn set_gateway_allowlist(env: &Env, gateways: &Vec<String>) {
+    env.storage()
+        .instance()
+        .set(&DataKey::GatewayAllowlist, gateways);
+}
+
+/// Get the allowlisted IPFS gateway URL prefixes. Returns empty vec if not set.
+pub fn get_gateway_allowlist(env: &Env) -> Vec<String> {
+    env.storage()
+        .instance()
+        .get(&DataKey::GatewayAllowlist)
+        .unwrap_or_else(|| Vec::new(env))
+}
+
 // ── Appeal vote (persistent) ──────────────────────────────────────────────────
 
 pub fn set_appeal_vote(env: &Env, claim_id: u64, voter: &Address, vote: &VoteOption) {

@@ -87,7 +87,18 @@ export class NotificationsService {
   async getUserNotificationPreferences(
     userId: string,
   ): Promise<NotificationPreferences> {
-    const storedPreferences = await this.preferencesRepository.findByUserId(userId);
+    let storedPreferences = await this.preferencesRepository.findByUserId(userId);
+
+    // Create record with defaults if it doesn't exist
+    if (!storedPreferences) {
+      await this.preferencesRepository.upsert({
+        userId,
+        renewalRemindersEnabled: DEFAULT_NOTIFICATION_PREFERENCES.renewalRemindersEnabled,
+        claimUpdatesEnabled: DEFAULT_NOTIFICATION_PREFERENCES.claimUpdatesEnabled,
+      });
+      storedPreferences = await this.preferencesRepository.findByUserId(userId);
+    }
+
     return this.resolveNotificationPreferences(storedPreferences);
   }
 

@@ -184,6 +184,16 @@ pub struct ClaimRejected {
     pub at_ledger: u32,
 }
 
+/// Emitted when an approved payout is still unprocessed after its deadline.
+#[contractevent(topics = ["niffyinsure", "payout_timed_out"])]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PayoutTimedOut {
+    #[topic]
+    pub claim_id: u64,
+    pub deadline_ledger: u32,
+    pub at_ledger: u32,
+}
+
 /// Emitted every time a rejection increments the policy's strike counter.
 /// Indexers should use this event to notify holders of accumulating strikes
 /// before the threshold triggers deactivation.
@@ -309,6 +319,7 @@ pub fn file_claim(
         evidence: evidence.clone(),
         status: ClaimStatus::Processing,
         voting_deadline_ledger,
+        payout_deadline_ledger: 0,
         approve_votes: 0,
         reject_votes: 0,
         filed_at: now,
@@ -470,6 +481,9 @@ pub fn vote_on_claim(
     }
 
     if claim.status != status_before {
+        if claim.status == ClaimStatus::Approved && claim.payout_deadline_ledger == 0 {
+            claim.payout_deadline_ledger = now.saturating_add(ledger::PAYOUT_TIMEOUT_LEDGERS);
+        }
         push_status_transition(&mut claim.status_history, claim.status.clone(), now);
     }
 
@@ -548,6 +562,9 @@ fn finalize_claim_inner(env: &Env, claim_id: u64) -> Result<ClaimStatus, Error> 
     }
 
     if claim.status != status_before {
+        if claim.status == ClaimStatus::Approved && claim.payout_deadline_ledger == 0 {
+            claim.payout_deadline_ledger = now.saturating_add(ledger::PAYOUT_TIMEOUT_LEDGERS);
+        }
         push_status_transition(&mut claim.status_history, claim.status.clone(), now);
     }
 
@@ -592,6 +609,35 @@ pub fn process_deadline(env: &Env, claim_id: u64) -> Result<ClaimStatus, Error> 
         return Err(Error::ClaimNotProcessing);
     }
     finalize_claim_inner(env, claim_id)
+}
+
+/// Permissionless keeper: auto-reject an approved claim once its payout deadline has passed.
+pub fn process_payout_timeout(env: &Env, claim_id: u64) -> Result<ClaimStatus, Error> {
+    let mut claim = storage::get_claim(env, claim_id).ok_or(Error::ClaimNotFound)?;
+
+    if claim.status != ClaimStatus::Approved {
+        return Err(Error::ClaimNotApproved);
+    }
+
+    let now = env.ledger().sequence();
+    if now <= claim.payout_deadline_ledger {
+        return Err(Error::PayoutDeadlineNotReached);
+    }
+
+    claim.status = ClaimStatus::PayoutTimeout;
+    push_status_transition(&mut claim.status_history, ClaimStatus::PayoutTimeout, now);
+    storage::set_open_claim(env, &claim.claimant, claim.policy_id, false);
+    storage::remove_claim_rate_limit_prev(env, claim_id);
+    storage::set_claim(env, &claim);
+
+    PayoutTimedOut {
+        claim_id,
+        deadline_ledger: claim.payout_deadline_ledger,
+        at_ledger: now,
+    }
+    .publish(env);
+
+    Ok(claim.status)
 }
 
 // ── process_claim (admin payout trigger) ─────────────────────────────────────
