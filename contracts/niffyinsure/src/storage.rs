@@ -152,6 +152,11 @@ pub enum DataKey {
     // ── Rolling claim cap (persistent) ───────────────────────────────────────
     /// Per-policy rolling window accumulator: (holder, policy_id) → RollingClaimWindowState.
     RollingClaimState(Address, u32),
+    // ── Commit-reveal voting ──────────────────────────────────────────────────
+    /// Commit and reveal phase ledger boundaries for a claim.
+    CommitRevealPhases(u64),
+    /// Voter's 32-byte commitment hash: SHA-256(vote_byte || salt).
+    VoteCommitment(u64, Address),
 }
 
 pub fn has_open_claim(env: &Env, holder: &Address, policy_id: u32) -> bool {

@@ -67,6 +67,19 @@ pub enum Error {
     ClaimNotProcessing = 53,
     /// New claim would exceed the rolling per-policy paid-amount cap for the current window.
     RollingClaimCapExceeded = 54,
+    // ── Commit-reveal errors ──────────────────────────────────────────────────
+    /// No commit-reveal phases have been configured for this claim.
+    CommitRevealNotSet = 55,
+    /// Commit phase has already ended; commitments are no longer accepted.
+    CommitPhaseEnded = 56,
+    /// Reveal phase has not yet opened (still in commit phase).
+    RevealPhaseNotOpen = 57,
+    /// Reveal phase has ended; reveals are no longer accepted.
+    RevealPhaseEnded = 58,
+    /// Voter has no stored commitment for this claim.
+    CommitmentNotFound = 59,
+    /// Recomputed commitment hash does not match the stored commitment.
+    CommitmentMismatch = 60,
 }
 
 pub fn validate_quorum_bps(bps: u32) -> Result<(), Error> {

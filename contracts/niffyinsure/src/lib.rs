@@ -4,6 +4,7 @@
 pub mod admin;
 mod calculator;
 mod claim;
+pub mod commit_reveal;
 pub mod events;
 mod governance_token;
 mod ledger;
